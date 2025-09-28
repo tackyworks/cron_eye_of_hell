@@ -215,10 +215,112 @@ async function handleAnon(interaction, usernames) {
     safeReply(interaction, { content: `ur new anon username: **${username}**`, ephemeral: true });
 }
 
+// === SMART MENTION SYSTEM ===
+async function findUserByPartialName(guild, partialName) {
+    if (!guild) return null;
+    
+    const searchName = partialName.toLowerCase();
+    
+    // Try to fetch all members if not cached
+    try {
+        await guild.members.fetch();
+    } catch (err) {
+        console.warn("Could not fetch all members:", err.message);
+    }
+    
+    const members = guild.members.cache;
+    
+    // First try exact matches (case insensitive)
+    let exactMatch = members.find(member => 
+        member.user.username.toLowerCase() === searchName ||
+        member.displayName.toLowerCase() === searchName
+    );
+    
+    if (exactMatch) return exactMatch.user;
+    
+    // Then try partial matches - prioritize username matches
+    let partialMatches = members.filter(member =>
+        member.user.username.toLowerCase().includes(searchName) ||
+        member.displayName.toLowerCase().includes(searchName)
+    );
+    
+    if (partialMatches.size === 0) return null;
+    
+    // Sort by relevance (shorter names = better match)
+    let sortedMatches = partialMatches.sort((a, b) => {
+        const aUsername = a.user.username.toLowerCase();
+        const bUsername = b.user.username.toLowerCase();
+        const aDisplayName = a.displayName.toLowerCase();
+        const bDisplayName = b.displayName.toLowerCase();
+        
+        // Prioritize starts-with matches
+        const aUsernameStarts = aUsername.startsWith(searchName) ? 0 : 1;
+        const bUsernameStarts = bUsername.startsWith(searchName) ? 0 : 1;
+        const aDisplayStarts = aDisplayName.startsWith(searchName) ? 0 : 1;
+        const bDisplayStarts = bDisplayName.startsWith(searchName) ? 0 : 1;
+        
+        const aBestStarts = Math.min(aUsernameStarts, aDisplayStarts);
+        const bBestStarts = Math.min(bUsernameStarts, bDisplayStarts);
+        
+        if (aBestStarts !== bBestStarts) return aBestStarts - bBestStarts;
+        
+        // Then by length (shorter = better match)
+        const aLen = Math.min(aUsername.length, aDisplayName.length);
+        const bLen = Math.min(bUsername.length, bDisplayName.length);
+        
+        return aLen - bLen;
+    });
+    
+    return sortedMatches.first()?.user || null;
+}
+
+async function parseSmartMentions(content, guild) {
+    if (!guild) return { content, mentionedUsers: [] };
+    
+    const mentionedUsers = [];
+    let processedContent = content;
+    
+    // First, extract existing Discord mentions and add them to allowed list
+    const existingMentions = content.match(/<@!?(\d{17,19})>/g);
+    if (existingMentions) {
+        for (const mention of existingMentions) {
+            const userId = mention.match(/\d{17,19}/)[0];
+            mentionedUsers.push(userId);
+        }
+    }
+    
+    // Then process @word patterns that aren't already Discord mentions
+    const mentionPattern = /@([a-zA-Z0-9_.-]+)(?![\d>])/g;
+    const matches = [...content.matchAll(mentionPattern)];
+    
+    for (const match of matches) {
+        const [fullMatch, username] = match;
+        
+        // Skip if it's already a proper Discord mention
+        if (fullMatch.includes('<@')) continue;
+        
+        const user = await findUserByPartialName(guild, username);
+        
+        if (user) {
+            // Replace with proper Discord mention
+            processedContent = processedContent.replace(fullMatch, `<@${user.id}>`);
+            
+            // Add to mentioned users if not already there
+            if (!mentionedUsers.includes(user.id)) {
+                mentionedUsers.push(user.id);
+            }
+            
+            console.log(`Smart mention: "${username}" -> ${user.username} (${user.id})`);
+        }
+    }
+    
+    return { content: processedContent, mentionedUsers };
+}
+
 async function handleMessage(interaction, usernames) {
     if (!usernames[interaction.user.id]) return safeReply(interaction, { content: "get an anon username first with `/anon`.", ephemeral: true });
 
-    const content = interaction.options.getString("content");
+    const rawContent = interaction.options.getString("content");
     const attachment = interaction.options.getAttachment("attachment");
     let files = [];
 
@@ -228,10 +330,20 @@ async function handleMessage(interaction, usernames) {
         files.push({ attachment: buf, name: attachment.name });
     }
 
+    // Process smart mentions
+    const guild = interaction.guild;
+    const { content, mentionedUsers } = await parseSmartMentions(rawContent, guild);
+
     const payload = {
         username: usernames[interaction.user.id],
         content,
-        avatar_url: client.user.displayAvatarURL({ format: "png", size: 256 })
+        avatar_url: client.user.displayAvatarURL({ format: "png", size: 256 }),
+        // Configure mentions - allow specific users found by smart mentions
+        allowed_mentions: {
+            parse: ["users"], // Allow user mentions
+            users: mentionedUsers, // Only allow mentions of users we specifically found
+            replied_user: false
+        }
     };
 
     const formData = new FormData();
@@ -241,8 +353,9 @@ async function handleMessage(interaction, usernames) {
     // === LOGGING FOR OWNER ===
     const messagePreview = content.length > 100 ? content.substring(0, 100) + "..." : content;
     const hasAttachment = attachment ? " [+file]" : "";
+    const mentionLog = mentionedUsers.length > 0 ? ` [mentions: ${mentionedUsers.length}]` : "";
     
-    console.log(`${interaction.user.username} (${usernames[interaction.user.id]}): ${messagePreview}${hasAttachment}`);
+    console.log(`${interaction.user.username} (${usernames[interaction.user.id]}): ${messagePreview}${hasAttachment}${mentionLog}`);
 
     await fetch(ANON_WEBHOOK_URL, { method: "POST", body: formData, headers: formData.getHeaders() });
     safeReply(interaction, { content: "sent anon msg", ephemeral: true });
