@@ -327,7 +327,13 @@ async function handleMessage(interaction, usernames) {
     if (attachment) {
         const res = await fetch(attachment.url);
         const buf = await res.buffer();
-        files.push({ attachment: buf, name: attachment.name });
+        
+        // Auto-spoiler all attachments by adding SPOILER_ prefix
+        const spoileredName = attachment.name.startsWith('SPOILER_') 
+            ? attachment.name 
+            : `SPOILER_${attachment.name}`;
+            
+        files.push({ attachment: buf, name: spoileredName });
     }
 
     // Process smart mentions
@@ -338,10 +344,9 @@ async function handleMessage(interaction, usernames) {
         username: usernames[interaction.user.id],
         content,
         avatar_url: client.user.displayAvatarURL({ format: "png", size: 256 }),
-        // Configure mentions - allow specific users found by smart mentions
         allowed_mentions: {
-            parse: ["users"], // Allow user mentions
-            users: mentionedUsers, // Only allow mentions of users we specifically found
+            parse: ["users"],
+            users: mentionedUsers,
             replied_user: false
         }
     };
@@ -352,7 +357,7 @@ async function handleMessage(interaction, usernames) {
 
     // === LOGGING FOR OWNER ===
     const messagePreview = content.length > 100 ? content.substring(0, 100) + "..." : content;
-    const hasAttachment = attachment ? " [+file]" : "";
+    const hasAttachment = attachment ? " [+spoilered file]" : "";
     const mentionLog = mentionedUsers.length > 0 ? ` [mentions: ${mentionedUsers.length}]` : "";
     
     console.log(`${interaction.user.username} (${usernames[interaction.user.id]}): ${messagePreview}${hasAttachment}${mentionLog}`);
@@ -397,7 +402,13 @@ async function handleAnonDM(interaction, usernames) {
         if (attachment) {
             const res = await fetch(attachment.url);
             const buf = await res.buffer();
-            files.push({ attachment: buf, name: attachment.name });
+            
+            // Auto-spoiler all attachments in DMs too
+            const spoileredName = attachment.name.startsWith('SPOILER_') 
+                ? attachment.name 
+                : `SPOILER_${attachment.name}`;
+                
+            files.push({ attachment: buf, name: spoileredName });
         }
 
         // Send the DM
@@ -412,7 +423,7 @@ async function handleAnonDM(interaction, usernames) {
 
         // Log for moderation
         const messagePreview = content.length > 100 ? content.substring(0, 100) + "..." : content;
-        const hasAttachment = attachment ? " [+file]" : "";
+        const hasAttachment = attachment ? " [+spoilered file]" : "";
         console.log(`[ANON DM] ${interaction.user.username} (${senderAnonName}) -> ${targetUser.username}: ${messagePreview}${hasAttachment}`);
 
         safeReply(interaction, { content: `Anonymous DM sent to ${targetUser.username}`, ephemeral: true });
