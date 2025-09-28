@@ -153,7 +153,7 @@ ONLY return the username, no explanation.
         let username = response.choices[0].message.content.trim();
 
         // Validate length
-        if (username.length < 4 || username.length > 10) {
+        if (username.length < 4 || username.length > 15) {
             return await generateAnonUsername();
         }
 
