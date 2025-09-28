@@ -4,7 +4,8 @@ const {
     AttachmentBuilder, 
     SlashCommandBuilder, 
     REST, 
-    Routes 
+    Routes,
+    ActivityType 
 } = require('discord.js');
 const OpenAI = require('openai');
 const fs = require('fs');
@@ -24,6 +25,7 @@ const PREFIX = "!";
 // === FILES ===
 const ANON_USERNAMES_FILE = path.join(__dirname, "anon_usernames.json");
 const COOLDOWNS_FILE = path.join(__dirname, "anon_cooldowns.json");
+const DM_COOLDOWNS_FILE = path.join(__dirname, "dm_cooldowns.json");
 const CREDITS_FILE = path.join(__dirname, "credits.json");
 const INITIAL_CREDITS = 10000;
 
@@ -56,6 +58,9 @@ function saveAnonUsernames(data) { saveFile(ANON_USERNAMES_FILE, data); }
 function loadCooldowns() { return loadFile(COOLDOWNS_FILE, {}); }
 function saveCooldowns(data) { saveFile(COOLDOWNS_FILE, data); }
 
+function loadDmCooldowns() { return loadFile(DM_COOLDOWNS_FILE, {}); }
+function saveDmCooldowns(data) { saveFile(DM_COOLDOWNS_FILE, data); }
+
 function isOnCooldown(userId) {
     const cooldowns = loadCooldowns();
     const now = Date.now();
@@ -72,6 +77,24 @@ function setCooldown(userId) {
     const cooldowns = loadCooldowns();
     cooldowns[userId] = Date.now() + (60 * 60 * 1000);
     saveCooldowns(cooldowns);
+}
+
+function isOnDmCooldown(userId) {
+    const cooldowns = loadDmCooldowns();
+    const now = Date.now();
+    if (!cooldowns[userId]) return false;
+    if (now < cooldowns[userId]) {
+        return Math.ceil((cooldowns[userId] - now) / (1000 * 60));
+    }
+    delete cooldowns[userId];
+    saveDmCooldowns(cooldowns);
+    return false;
+}
+
+function setDmCooldown(userId) {
+    const cooldowns = loadDmCooldowns();
+    cooldowns[userId] = Date.now() + (2.5 * 60 * 1000); // 2.5 minute cooldown
+    saveDmCooldowns(cooldowns);
 }
 
 function loadCredits() { return loadFile(CREDITS_FILE, { remaining: INITIAL_CREDITS, used: 0 }); }
@@ -147,6 +170,10 @@ const commands = [
     new SlashCommandBuilder().setName("message").setDescription("Send an anonymous message (DM only)")
         .addStringOption(opt => opt.setName("content").setDescription("Your anonymous message").setRequired(true))
         .addAttachmentOption(opt => opt.setName("attachment").setDescription("Optional image")),
+    new SlashCommandBuilder().setName("anon_dm").setDescription("Send an anonymous DM to someone")
+        .addUserOption(opt => opt.setName("user").setDescription("User to send DM to").setRequired(true))
+        .addStringOption(opt => opt.setName("content").setDescription("Your anonymous message").setRequired(true))
+        .addAttachmentOption(opt => opt.setName("attachment").setDescription("Optional file")),
     new SlashCommandBuilder().setName("wipe").setDescription("Wipe your anonymous identity (1h cooldown)"),
     new SlashCommandBuilder().setName("credits").setDescription("Check remaining credits"),
     new SlashCommandBuilder().setName("resetcredits").setDescription("Reset credits (owner only)")
@@ -209,6 +236,72 @@ async function handleMessage(interaction, usernames) {
     safeReply(interaction, { content: "sent anon msg", ephemeral: true });
 }
 
+async function handleAnonDM(interaction, usernames) {
+    // Check if user has anonymous identity
+    if (!usernames[interaction.user.id]) {
+        return safeReply(interaction, { content: "get an anon username first with `/anon`.", ephemeral: true });
+    }
+
+    // Check DM cooldown
+    const dmCooldown = isOnDmCooldown(interaction.user.id);
+    if (dmCooldown) {
+        return safeReply(interaction, { content: `DM cooldown: ${dmCooldown}m left`, ephemeral: true });
+    }
+
+    const targetUser = interaction.options.getUser("user");
+    const content = interaction.options.getString("content");
+    const attachment = interaction.options.getAttachment("attachment");
+
+    // Prevent self-DM
+    if (targetUser.id === interaction.user.id) {
+        return safeReply(interaction, { content: "can't DM yourself.", ephemeral: true });
+    }
+
+    // Prevent DMing bots
+    if (targetUser.bot) {
+        return safeReply(interaction, { content: "can't DM bots.", ephemeral: true });
+    }
+
+    try {
+        const senderAnonName = usernames[interaction.user.id];
+        
+        // Format the DM message
+        let dmContent = `**You've received a message from ${senderAnonName}**\n\n${content}`;
+        
+        let files = [];
+        if (attachment) {
+            const res = await fetch(attachment.url);
+            const buf = await res.buffer();
+            files.push({ attachment: buf, name: attachment.name });
+        }
+
+        // Send the DM
+        if (files.length > 0) {
+            await targetUser.send({ content: dmContent, files: files });
+        } else {
+            await targetUser.send(dmContent);
+        }
+
+        // Set cooldown
+        setDmCooldown(interaction.user.id);
+
+        // Log for moderation
+        const messagePreview = content.length > 100 ? content.substring(0, 100) + "..." : content;
+        const hasAttachment = attachment ? " [+file]" : "";
+        console.log(`[ANON DM] ${interaction.user.username} (${senderAnonName}) -> ${targetUser.username}: ${messagePreview}${hasAttachment}`);
+
+        safeReply(interaction, { content: `Anonymous DM sent to ${targetUser.username}`, ephemeral: true });
+
+    } catch (error) {
+        console.error("DM send failed:", error);
+        if (error.code === 50007) {
+            safeReply(interaction, { content: "couldn't send DM - user has DMs disabled or blocked the bot.", ephemeral: true });
+        } else {
+            safeReply(interaction, { content: "failed to send DM.", ephemeral: true });
+        }
+    }
+}
+
 async function handleWipe(interaction, usernames) {
     if (!usernames[interaction.user.id]) return safeReply(interaction, { content: "u don't have an anon identity.", ephemeral: true });
 
@@ -232,15 +325,15 @@ client.once("ready", async () => {
     console.log(`${client.user.tag} online`);
     
     const statuses = [
-        { name: "THE STRONGEST BATTLEGROUNDS", type: "PLAYING" },
-         { name: "in the phillipines", type: "PLAYING" },
-          { name: "aisar's a bum", type: "PLAYING" },
-           { name: "ay fuck u eye of heaven", type: "PLAYING" },
-            { name: "what? can't hear you little bud", type: "PLAYING" },
-             { name: "IN HELL", type: "PLAYING" },
-              { name: "BURNING", type: "PLAYING" },
-               { name: "HELP ME HELP ME SANTINO HAS ME HOSTAGE", type: "PLAYING" },
-                { name: "santino dont like me Bruh ima kms", type: "PLAYING" },
+        { name: "THE STRONGEST BATTLEGROUNDS", type: ActivityType.Playing },
+         { name: "in the phillipines", type: ActivityType.Playing },
+          { name: "aisar's a bum", type: ActivityType.Playing },
+           { name: "ay fuck u eye of heaven", type: ActivityType.Playing },
+            { name: "what? can't hear you little bud", type: ActivityType.Playing },
+             { name: "IN HELL", type: ActivityType.Playing },
+              { name: "BURNING", type: ActivityType.Playing },
+               { name: "HELP ME HELP ME SANTINO HAS ME HOSTAGE", type: ActivityType.Playing },
+                { name: "santino dont like me Bruh ima kms", type: ActivityType.Playing },
     ];
     
     let currentStatus = 0;
@@ -264,6 +357,7 @@ client.on("interactionCreate", async (interaction) => {
     try {
         if (interaction.commandName === "anon") return handleAnon(interaction, usernames);
         if (interaction.commandName === "message") return handleMessage(interaction, usernames);
+        if (interaction.commandName === "anon_dm") return handleAnonDM(interaction, usernames);
         if (interaction.commandName === "wipe") return handleWipe(interaction, usernames);
         if (interaction.commandName === "credits") {
             const credits = loadCredits();
