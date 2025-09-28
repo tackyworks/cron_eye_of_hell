@@ -230,6 +230,30 @@ async function handleWipe(interaction, usernames) {
 // === EVENT HANDLERS ===
 client.once("ready", async () => {
     console.log(`${client.user.tag} online`);
+    
+    const statuses = [
+        { name: "THE STRONGEST BATTLEGROUNDS", type: "PLAYING" },
+         { name: "in the phillipines", type: "PLAYING" },
+          { name: "aisar's a bum", type: "PLAYING" },
+           { name: "ay fuck u eye of heaven", type: "PLAYING" },
+            { name: "what? can't hear you little bud", type: "PLAYING" },
+             { name: "IN HELL", type: "PLAYING" },
+              { name: "BURNING", type: "PLAYING" },
+               { name: "HELP ME HELP ME SANTINO HAS ME HOSTAGE", type: "PLAYING" },
+                { name: "santino dont like me Bruh ima kms", type: "PLAYING" },
+    ];
+    
+    let currentStatus = 0;
+    
+    const updateStatus = () => {
+        const status = statuses[currentStatus];
+        client.user.setActivity(status.name, { type: status.type });
+        currentStatus = (currentStatus + 1) % statuses.length;
+    };
+    
+    updateStatus();
+    setInterval(updateStatus, 30000);
+    
     await deployCommands();
 });
 
