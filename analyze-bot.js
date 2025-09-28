@@ -75,7 +75,7 @@ function isOnCooldown(userId) {
 
 function setCooldown(userId) {
     const cooldowns = loadCooldowns();
-    cooldowns[userId] = Date.now() + (60 * 60 * 1000);
+    cooldowns[userId] = Date.now() + (5 * 60 * 1000); // Changed from (60 * 60 * 1000)
     saveCooldowns(cooldowns);
 }
 
@@ -117,7 +117,7 @@ const openai = new OpenAI({ apiKey: OPENAI_API_KEY });
 async function generateAnonUsername() {
     if (!useCredit()) return null;
     try {
-       `
+      const prompt = `
 Generate ONE random anonymous username.
 
 Style variety (pick ONE randomly):
@@ -186,7 +186,7 @@ const commands = [
         .addUserOption(opt => opt.setName("user").setDescription("User to send DM to").setRequired(true))
         .addStringOption(opt => opt.setName("content").setDescription("Your anonymous message").setRequired(true))
         .addAttachmentOption(opt => opt.setName("attachment").setDescription("Optional file")),
-    new SlashCommandBuilder().setName("wipe").setDescription("Wipe your anonymous identity (1h cooldown)"),
+    new SlashCommandBuilder().setName("wipe").setDescription("Wipe your anonymous identity (5m cooldown)"),
     new SlashCommandBuilder().setName("credits").setDescription("Check remaining credits"),
     new SlashCommandBuilder().setName("resetcredits").setDescription("Reset credits (owner only)")
 ];
@@ -329,7 +329,7 @@ async function handleWipe(interaction, usernames) {
     };
     await fetch(ANON_WEBHOOK_URL, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
 
-    safeReply(interaction, { content: `Anon identity **${old}** wiped. Cooldown: 1h`, ephemeral: true });
+    safeReply(interaction, { content: `Anon identity **${old}** wiped. Cooldown: 5m`, ephemeral: true });
 }
 
 // === EVENT HANDLERS ===
