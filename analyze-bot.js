@@ -345,8 +345,7 @@ async function handleMessage(interaction, usernames) {
         content,
         avatar_url: client.user.displayAvatarURL({ format: "png", size: 256 }),
         allowed_mentions: {
-            parse: ["users"],
-            users: mentionedUsers,
+            parse: [],
             replied_user: false
         }
     };
