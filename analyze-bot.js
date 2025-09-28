@@ -118,7 +118,7 @@ async function generateAnonUsername() {
     if (!useCredit()) return null;
     try {
       const prompt = `
-Generate ONE random anonymous username.
+Generate ONE random username.
 
 Style variety (pick ONE randomly):
 1. Real words: simple words, maybe with numbers (coffee_cat, moon47, blade_runner)
