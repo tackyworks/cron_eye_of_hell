@@ -1,0 +1,27 @@
+{
+  "name": "discord-image-analysis-bot",
+  "version": "1.0.0",
+  "description": "Discord bot that roasts and analyzes images using OpenAI GPT-4 Vision in casual internet slang when pinged with 'analyze'",
+  "main": "analyze-bot.js",
+  "scripts": {
+    "start": "node analyze-bot.js",
+    "dev": "nodemon analyze-bot.js"
+  },
+  "dependencies": {
+    "discord.js": "^14.13.0",
+    "form-data": "^4.0.4",
+    "openai": "^4.20.1"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.1"
+  },
+  "keywords": [
+    "discord",
+    "bot",
+    "openai",
+    "image-analysis",
+    "gpt-4-vision"
+  ],
+  "author": "Your Name",
+  "license": "MIT"
+}
