@@ -117,19 +117,31 @@ const openai = new OpenAI({ apiKey: OPENAI_API_KEY });
 async function generateAnonUsername() {
     if (!useCredit()) return null;
     try {
-        const prompt = `
+       `
 Generate ONE random anonymous username.
 
+Style variety (pick ONE randomly):
+1. Real words: simple words, maybe with numbers (coffee_cat, moon47, blade_runner)
+2. Gaming style: common gaming terms (shadow_wolf, frost_bite, void_walker)
+3. Random combo: adjective + noun (silent_storm, broken_mirror, neon_dreams)
+4. Internet slang: mix of real/internet words (epic_noob, mega_chad, ghost_mode)
+5. Minimalist: short and clean (zeph, nova, echo, flux, apex)
+6. Retro/nostalgic: 2000s internet vibes (sk8rboi, musiclover, gamerkid)
+7. Unicode aesthetic: includes symbols like ◊, ♦, ★, ◆, ▲, ○ (star◊nova, ♦flux, echo★)
+8. Symbol accent: subtle unicode touches (nøva, café, résumé, naïve)
+9. Geometric: clean symbols ▲echo, ○void, ◆storm)
+
 Rules:
-- Length: 4–10 characters
-- Chaotic "internet style"
-- Allowed characters: letters, numbers, _, -, .
-- May mix casing
-- May include: a number OR a unicode symbol OR a short non-English word
-- Should feel like something you'd see on the internet (random, edgy, playful, weird)
-- No emojis
-- Do not explain, ONLY return the username
-`;
+- Length: 4-12 characters
+- Use real English words 60% of the time
+- Unicode symbols allowed for styles 7-9 only
+- Allowed: letters, numbers, _, -, ., and unicode symbols ◊♦★◆▲○øæçñé
+- Keep it internet-appropriate
+- Mix casing naturally
+- Should feel authentic to online communities
+
+ONLY return the username, no explanation.
+`
 
         const response = await openai.chat.completions.create({
             model: "gpt-4o-mini",
