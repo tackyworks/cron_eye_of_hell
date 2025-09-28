@@ -25,7 +25,7 @@ const PREFIX = "!";
 const ANON_USERNAMES_FILE = path.join(__dirname, "anon_usernames.json");
 const COOLDOWNS_FILE = path.join(__dirname, "anon_cooldowns.json");
 const CREDITS_FILE = path.join(__dirname, "credits.json");
-const INITIAL_CREDITS = 100;
+const INITIAL_CREDITS = 10000;
 
 // === UTILS ===
 function loadFile(file, fallback) {
@@ -198,6 +198,12 @@ async function handleMessage(interaction, usernames) {
     const formData = new FormData();
     formData.append("payload_json", JSON.stringify(payload));
     files.forEach((f, i) => formData.append(`files[${i}]`, f.attachment, { filename: f.name }));
+
+    // === LOGGING FOR OWNER ===
+    const messagePreview = content.length > 100 ? content.substring(0, 100) + "..." : content;
+    const hasAttachment = attachment ? " [+file]" : "";
+    
+    console.log(`${interaction.user.username} (${usernames[interaction.user.id]}): ${messagePreview}${hasAttachment}`);
 
     await fetch(ANON_WEBHOOK_URL, { method: "POST", body: formData, headers: formData.getHeaders() });
     safeReply(interaction, { content: "sent anon msg", ephemeral: true });
