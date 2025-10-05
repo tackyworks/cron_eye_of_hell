@@ -117,31 +117,34 @@ const openai = new OpenAI({ apiKey: OPENAI_API_KEY });
 async function generateAnonUsername() {
     if (!useCredit()) return null;
     try {
-      const prompt = `
-Generate ONE random username.
+     const prompt = `
+Generate ONE random username with VARIED formatting.
 
-Style variety (pick ONE randomly):
-1. Real words: simple words, maybe with numbers (coffee_cat, moon47, blade_runner)
-2. Gaming style: common gaming terms (shadow_wolf, frost_bite, void_walker)
-3. Random combo: adjective + noun (silent_storm, broken_mirror, neon_dreams)
-4. Internet slang: mix of real/internet words (epic_noob, mega_chad, ghost_mode)
-5. Minimalist: short and clean (zeph, nova, echo, flux, apex)
-6. Retro/nostalgic: 2000s internet vibes (sk8rboi, musiclover, gamerkid)
-7. Unicode aesthetic: includes symbols like ◊, ♦, ★, ◆, ▲, ○ (star◊nova, ♦flux, echo★)
-8. Symbol accent: subtle unicode touches (nøva, café, résumé, naïve)
-9. Geometric: clean symbols ▲echo, ○void, ◆storm)
+Pick ONE style randomly (distribute evenly):
+1. Single word + number: coffee47, lunar9, blade2
+2. Compound words (no separator): moonwalker, frostbite, nightowl
+3. Adjective + noun WITH separator: silent_storm, broken.mirror
+4. Minimalist (4-7 chars): zeph, nova, echo, flux, koi
+5. Casual caps: MoonGuy, VibeCheck, OkayBuddy
+6. Lowercase run-on: phantomcat, voidecho, stormchild
+7. Number prefix/suffix: 7ghost, apex99, nova3
+8. Unicode accent (styles 1-7 + symbol): star◊nova, echo★, ▲flux
+9. Retro simple: sk8rboi, xxcoolxx, musiclvr
+
+Format distribution:
+- 40% = NO separators (styles 2, 5, 6)
+- 30% = WITH separators (styles 3)
+- 30% = Other formats (styles 1, 4, 7, 8, 9)
 
 Rules:
-- Length: 4-12 characters
-- Use real English words 60% of the time
-- Unicode symbols allowed for styles 7-9 only
-- Allowed: letters, numbers, _, -, ., and unicode symbols ◊♦★◆▲○øæçñé
-- Keep it internet-appropriate
-- Mix casing naturally
-- Should feel authentic to online communities
+- 4-12 characters total
+- Vary the pattern heavily
+- Unicode symbols (◊♦★◆▲○øæé) only in style 8
+- Avoid repeating recent patterns
+- Should feel organic and diverse
 
-ONLY return the username, no explanation.
-`
+ONLY output the username.
+`;
 
         const response = await openai.chat.completions.create({
             model: "gpt-4o-mini",
