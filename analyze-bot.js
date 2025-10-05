@@ -114,16 +114,20 @@ function useCredit() {
 // === OpenAI ===
 const openai = new OpenAI({ apiKey: OPENAI_API_KEY });
 
+const specialWords = ['Cinder', 'Zecaroon', 'Janboe', 'Rkivvey', 'Creamqueen', 'FFF'];
+const useSpecialWord = Math.random() < 0.25;
+const chosenWord = useSpecialWord ? specialWords[Math.floor(Math.random() * specialWords.length)] : null;
+
 async function generateAnonUsername() {
     if (!useCredit()) return null;
     try {
      const prompt = `
 Generate ONE random username with VARIED formatting.
+${useSpecialWord ? `MUST incorporate this word: ${chosenWord}` : ''}
 
 Pick ONE style randomly (distribute evenly):
 1. Single word + number: coffee47, lunar9, blade2
 2. Compound words (no separator): moonwalker, frostbite, nightowl
-3. Adjective + noun WITH separator: silent_storm, broken.mirror
 4. Minimalist (4-7 chars): zeph, nova, echo, flux, koi
 5. Casual caps: MoonGuy, VibeCheck, OkayBuddy
 6. Lowercase run-on: phantomcat, voidecho, stormchild
@@ -136,8 +140,15 @@ Format distribution:
 - 30% = WITH separators (styles 3)
 - 30% = Other formats (styles 1, 4, 7, 8, 9)
 
+${useSpecialWord ? `
+Integration methods for "${chosenWord}":
+- As base: ${chosenWord}47, ${chosenWord.toLowerCase()}
+- As suffix: echo${chosenWord}, moon_${chosenWord}
+- Modified: ${chosenWord.slice(0, 4)}99, x${chosenWord}x
+` : ''}
+
 Rules:
-- 4-12 characters total
+- 4-14 characters total ${useSpecialWord ? '(extended for special word)' : ''}
 - Vary the pattern heavily
 - Unicode symbols (◊♦★◆▲○øæé) only in style 8
 - Avoid repeating recent patterns
