@@ -115,7 +115,7 @@ function useCredit() {
 const openai = new OpenAI({ apiKey: OPENAI_API_KEY });
 
 const specialWords = ['Cinder', 'Zecaroon', 'Janboe', 'Rkivvey', 'Creamqueen', 'FFF'];
-const useSpecialWord = Math.random() < 0.25;
+const useSpecialWord = Math.random() < 0.50;
 const chosenWord = useSpecialWord ? specialWords[Math.floor(Math.random() * specialWords.length)] : null;
 
 async function generateAnonUsername() {
@@ -127,13 +127,11 @@ ${useSpecialWord ? `MUST incorporate this word: ${chosenWord}` : ''}
 
 Pick ONE style randomly (distribute evenly):
 1. Single word + number: coffee47, lunar9, blade2
-2. Compound words (no separator): moonwalker, frostbite, nightowl
-4. Minimalist (4-7 chars): zeph, nova, echo, flux, koi
-5. Casual caps: MoonGuy, VibeCheck, OkayBuddy
-6. Lowercase run-on: phantomcat, voidecho, stormchild
-7. Number prefix/suffix: 7ghost, apex99, nova3
-8. Unicode accent (styles 1-7 + symbol): star◊nova, echo★, ▲flux
-9. Retro simple: sk8rboi, xxcoolxx, musiclvr
+2. Minimalist (4-7 chars)
+3. Number prefix/suffix: 7ghost, apex99, nova3
+4. Unicode accent (styles 1-7 + symbol): star◊nova, echo★, ▲flux
+5. Retro simple
+6. Internet Slang
 
 Format distribution:
 - 40% = NO separators (styles 2, 5, 6)
@@ -409,7 +407,7 @@ async function handleAnonDM(interaction, usernames) {
         const senderAnonName = usernames[interaction.user.id];
         
         // Format the DM message
-        let dmContent = `**You've received a message from ${senderAnonName}**\n\n${content}`;
+        let dmContent = `**You've received an anonymous message from ${senderAnonName}**\n\n${content}`;
         
         let files = [];
         if (attachment) {
