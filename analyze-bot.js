@@ -137,7 +137,6 @@ Pick ONE style randomly (distribute evenly):
 ${useSpecialWord ? `
 Integration methods for "${chosenWord}":
 - As base: ${chosenWord}47, ${chosenWord.toLowerCase()}
-- As suffix: echo${chosenWord}, moon_${chosenWord}
 - Modified: ${chosenWord.slice(0, 4)}99, x${chosenWord}x
 ` : ''}
 
