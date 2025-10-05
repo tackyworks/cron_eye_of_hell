@@ -117,8 +117,7 @@ const openai = new OpenAI({ apiKey: OPENAI_API_KEY });
 async function generateAnonUsername() {
     if (!useCredit()) return null;
     
-    // Move the randomization HERE - it recalculates every time now
-    const specialWords = ['Cinder', 'Zecaroon', 'Janboe', 'Rkivvey', 'Creamqueen', 'Birdcage', 'Liberator'];
+    const specialWords = ['cinder', 'zecaroon', 'janboe', 'rkivvey', 'creamqueen', 'birdcage', 'liberator', 'groomer', 'specwarrior'];
     const useSpecialWord = Math.random() < 0.35;
     const chosenWord = useSpecialWord ? specialWords[Math.floor(Math.random() * specialWords.length)] : null;
     
