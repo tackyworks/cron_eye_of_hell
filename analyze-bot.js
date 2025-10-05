@@ -118,7 +118,7 @@ async function generateAnonUsername() {
     if (!useCredit()) return null;
     
     const specialWords = ['cinder', 'zecaroon', 'janboe', 'rkivvey', 'creamqueen', 'birdcage', 'liberator', 'groomer', 'specwarrior'];
-    const useSpecialWord = Math.random() < 0.35;
+    const useSpecialWord = Math.random() < 0.4;
     const chosenWord = useSpecialWord ? specialWords[Math.floor(Math.random() * specialWords.length)] : null;
     
     try {
@@ -146,6 +146,7 @@ Rules:
 - Unicode symbols (◊♦★◆▲○øæé) only in style 4
 - Avoid repeating recent patterns
 - Should feel organic and diverse
+- Lowercase only
 
 ONLY output the username.
 `;
