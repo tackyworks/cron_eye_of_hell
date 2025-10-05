@@ -133,11 +133,6 @@ Pick ONE style randomly (distribute evenly):
 5. Retro simple
 6. Internet Slang
 
-Format distribution:
-- 40% = NO separators (styles 2, 5, 6)
-- 30% = WITH separators (styles 3)
-- 30% = Other formats (styles 1, 4, 7, 8, 9)
-
 ${useSpecialWord ? `
 Integration methods for "${chosenWord}":
 - As base: ${chosenWord}47, ${chosenWord.toLowerCase()}
@@ -148,7 +143,7 @@ Integration methods for "${chosenWord}":
 Rules:
 - 4-14 characters total ${useSpecialWord ? '(extended for special word)' : ''}
 - Vary the pattern heavily
-- Unicode symbols (◊♦★◆▲○øæé) only in style 8
+- Unicode symbols (◊♦★◆▲○øæé) only in style 4
 - Avoid repeating recent patterns
 - Should feel organic and diverse
 
