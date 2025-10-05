@@ -114,22 +114,24 @@ function useCredit() {
 // === OpenAI ===
 const openai = new OpenAI({ apiKey: OPENAI_API_KEY });
 
-const specialWords = ['Cinder', 'Zecaroon', 'Janboe', 'Rkivvey', 'Creamqueen', 'FFF'];
-const useSpecialWord = Math.random() < 0.50;
-const chosenWord = useSpecialWord ? specialWords[Math.floor(Math.random() * specialWords.length)] : null;
-
 async function generateAnonUsername() {
     if (!useCredit()) return null;
+    
+    // Move the randomization HERE - it recalculates every time now
+    const specialWords = ['Cinder', 'Zecaroon', 'Janboe', 'Rkivvey', 'Creamqueen', 'Birdcage', 'Liberator'];
+    const useSpecialWord = Math.random() < 0.35;
+    const chosenWord = useSpecialWord ? specialWords[Math.floor(Math.random() * specialWords.length)] : null;
+    
     try {
-     const prompt = `
+        const prompt = `
 Generate ONE random username with VARIED formatting.
 ${useSpecialWord ? `MUST incorporate this word: ${chosenWord}` : ''}
 
 Pick ONE style randomly (distribute evenly):
-1. Single word + number: coffee47, lunar9, blade2
+1. Single word + number
 2. Minimalist (4-7 chars)
-3. Number prefix/suffix: 7ghost, apex99, nova3
-4. Unicode accent (styles 1-7 + symbol): star◊nova, echo★, ▲flux
+3. Number prefix/suffix
+4. Unicode accent (styles 1-7 + symbol)
 5. Retro simple
 6. Internet Slang
 
@@ -218,6 +220,8 @@ async function handleAnon(interaction, usernames) {
 
     usernames[interaction.user.id] = username;
     saveAnonUsernames(usernames);
+
+    console.log(`[ANON CREATION] ${interaction.user.username} is ${username}`);
 
     safeReply(interaction, { content: `ur new anon username: **${username}**`, ephemeral: true });
 }
