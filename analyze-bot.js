@@ -5,7 +5,10 @@ const {
     SlashCommandBuilder, 
     REST, 
     Routes,
-    ActivityType 
+    ActivityType,
+    StringSelectMenuBuilder,
+    ActionRowBuilder,
+    ComponentType
 } = require('discord.js');
 const OpenAI = require('openai');
 const fs = require('fs');
@@ -14,11 +17,10 @@ const fetch = require('node-fetch');
 const FormData = require('form-data');
 
 // === CONFIG ===
-// replace with process.env in prod
 const DISCORD_TOKEN = process.env.DISCORD_TOKEN;
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const CLIENT_ID = process.env.CLIENT_ID;
-const ANON_WEBHOOK_URL = process.env.ANON_WEBHOOK_URL;
+const OWNER_ID = "249667396166483978";
 
 const PREFIX = "!";
 
@@ -27,6 +29,7 @@ const ANON_USERNAMES_FILE = path.join(__dirname, "anon_usernames.json");
 const COOLDOWNS_FILE = path.join(__dirname, "anon_cooldowns.json");
 const DM_COOLDOWNS_FILE = path.join(__dirname, "dm_cooldowns.json");
 const CREDITS_FILE = path.join(__dirname, "credits.json");
+const SERVER_WEBHOOKS_FILE = path.join(__dirname, "server_webhooks.json");
 const INITIAL_CREDITS = 10000;
 
 // === UTILS ===
@@ -61,6 +64,9 @@ function saveCooldowns(data) { saveFile(COOLDOWNS_FILE, data); }
 function loadDmCooldowns() { return loadFile(DM_COOLDOWNS_FILE, {}); }
 function saveDmCooldowns(data) { saveFile(DM_COOLDOWNS_FILE, data); }
 
+function loadServerWebhooks() { return loadFile(SERVER_WEBHOOKS_FILE, {}); }
+function saveServerWebhooks(data) { saveFile(SERVER_WEBHOOKS_FILE, data); }
+
 function isOnCooldown(userId) {
     const cooldowns = loadCooldowns();
     const now = Date.now();
@@ -75,7 +81,7 @@ function isOnCooldown(userId) {
 
 function setCooldown(userId) {
     const cooldowns = loadCooldowns();
-    cooldowns[userId] = Date.now() + (5 * 60 * 1000); // Changed from (60 * 60 * 1000)
+    cooldowns[userId] = Date.now() + (5 * 60 * 1000);
     saveCooldowns(cooldowns);
 }
 
@@ -93,7 +99,7 @@ function isOnDmCooldown(userId) {
 
 function setDmCooldown(userId) {
     const cooldowns = loadDmCooldowns();
-    cooldowns[userId] = Date.now() + (2.5 * 60 * 1000); // 2.5 minute cooldown
+    cooldowns[userId] = Date.now() + (2.5 * 60 * 1000);
     saveDmCooldowns(cooldowns);
 }
 
@@ -117,8 +123,8 @@ const openai = new OpenAI({ apiKey: OPENAI_API_KEY });
 async function generateAnonUsername() {
     if (!useCredit()) return null;
     
-    const specialWords = ['cinder', 'zecaroon', 'janboe', 'rkivvey', 'creamqueen', 'birdcage', 'liberator', 'groomer', 'specwarrior'];
-    const useSpecialWord = Math.random() < 0.4;
+    const specialWords = ['cinder', 'zecaroon', 'janboe', 'rkivvey', 'creamqueen', 'birdcage', 'liberator', 'groomer', 'specwarrior', 'pedophile', 'bukashka', 'mangoss', 'gerbert', 'gurt', 'epstein', 'cormac', 'atreides'];
+    const useSpecialWord = Math.random() < 0.3;
     const chosenWord = useSpecialWord ? specialWords[Math.floor(Math.random() * specialWords.length)] : null;
     
     try {
@@ -143,7 +149,7 @@ Integration methods for "${chosenWord}":
 Rules:
 - 4-14 characters total ${useSpecialWord ? '(extended for special word)' : ''}
 - Vary the pattern heavily
-- Unicode symbols (◊♦★◆▲○øæé) only in style 4
+- Unicode symbols (◊♦★◆▲○øæé) only when we're using style 4
 - Avoid repeating recent patterns
 - Should feel organic and diverse
 - Lowercase only
@@ -160,7 +166,6 @@ ONLY output the username.
 
         let username = response.choices[0].message.content.trim();
 
-        // Validate length
         if (username.length < 4 || username.length > 15) {
             return await generateAnonUsername();
         }
@@ -171,8 +176,6 @@ ONLY output the username.
         return "anon" + Math.floor(Math.random() * 9999);
     }
 }
-
-
 
 // === DISCORD ===
 const client = new Client({ 
@@ -187,7 +190,7 @@ function safeReply(interaction, options) {
 
 const commands = [
     new SlashCommandBuilder().setName("anon").setDescription("Get your anonymous username"),
-    new SlashCommandBuilder().setName("message").setDescription("Send an anonymous message (DM only)")
+    new SlashCommandBuilder().setName("message").setDescription("Send an anonymous message")
         .addStringOption(opt => opt.setName("content").setDescription("Your anonymous message").setRequired(true))
         .addAttachmentOption(opt => opt.setName("attachment").setDescription("Optional image")),
     new SlashCommandBuilder().setName("anon_dm").setDescription("Send an anonymous DM to someone")
@@ -196,13 +199,184 @@ const commands = [
         .addAttachmentOption(opt => opt.setName("attachment").setDescription("Optional file")),
     new SlashCommandBuilder().setName("wipe").setDescription("Wipe your anonymous identity (5m cooldown)"),
     new SlashCommandBuilder().setName("credits").setDescription("Check remaining credits"),
-    new SlashCommandBuilder().setName("resetcredits").setDescription("Reset credits (owner only)")
+    new SlashCommandBuilder().setName("resetcredits").setDescription("Reset credits (owner only)"),
+    new SlashCommandBuilder().setName("setupwebhook").setDescription("Setup webhook for server (owner only)")
+        .addStringOption(opt => opt.setName("webhook_url").setDescription("Webhook URL").setRequired(true))
 ];
 
 async function deployCommands() {
     const rest = new REST().setToken(DISCORD_TOKEN);
     await rest.put(Routes.applicationCommands(CLIENT_ID), { body: commands });
     console.log("Slash commands deployed!");
+}
+
+// === SERVER SELECTION ===
+function getCommonServers(userId) {
+    const servers = [];
+    const webhooks = loadServerWebhooks();
+    
+    for (const [guildId, webhookUrl] of Object.entries(webhooks)) {
+        const guild = client.guilds.cache.get(guildId);
+        if (guild && guild.members.cache.has(userId)) {
+            servers.push({ id: guildId, name: guild.name, webhookUrl });
+        }
+    }
+    
+    return servers;
+}
+
+async function promptServerSelection(interaction, userId) {
+    const servers = getCommonServers(userId);
+    
+    if (servers.length === 0) {
+        return { success: false, message: "No servers with webhooks set up found." };
+    }
+    
+    if (servers.length === 1) {
+        return { success: true, server: servers[0] };
+    }
+    
+    // Multiple servers - show selection menu
+    const selectMenu = new StringSelectMenuBuilder()
+        .setCustomId('server_select')
+        .setPlaceholder('Choose a server')
+        .addOptions(
+            servers.map(s => ({
+                label: s.name,
+                value: s.id,
+                description: `Post to ${s.name}`
+            }))
+        );
+
+    const row = new ActionRowBuilder().addComponents(selectMenu);
+    
+    const response = await interaction.followUp({
+        content: 'Select which server to post in:',
+        components: [row],
+        ephemeral: true
+    });
+
+    try {
+        const collector = response.createMessageComponentCollector({
+            componentType: ComponentType.StringSelect,
+            time: 60000
+        });
+
+        return new Promise((resolve) => {
+            collector.on('collect', async i => {
+                if (i.user.id !== userId) {
+                    await i.reply({ content: 'This is not your menu!', ephemeral: true });
+                    return;
+                }
+                
+                const selectedServerId = i.values[0];
+                const selectedServer = servers.find(s => s.id === selectedServerId);
+                
+                await i.update({ content: `Selected: ${selectedServer.name}`, components: [] });
+                collector.stop();
+                resolve({ success: true, server: selectedServer });
+            });
+
+            collector.on('end', (collected) => {
+                if (collected.size === 0) {
+                    resolve({ success: false, message: "Selection timed out." });
+                }
+            });
+        });
+    } catch (err) {
+        return { success: false, message: "Selection failed." };
+    }
+}
+
+// === SMART MENTION SYSTEM ===
+async function findUserByPartialName(guild, partialName) {
+    if (!guild) return null;
+    
+    const searchName = partialName.toLowerCase();
+    
+    try {
+        await guild.members.fetch();
+    } catch (err) {
+        console.warn("Could not fetch all members:", err.message);
+    }
+    
+    const members = guild.members.cache;
+    
+    let exactMatch = members.find(member => 
+        member.user.username.toLowerCase() === searchName ||
+        member.displayName.toLowerCase() === searchName
+    );
+    
+    if (exactMatch) return exactMatch.user;
+    
+    let partialMatches = members.filter(member =>
+        member.user.username.toLowerCase().includes(searchName) ||
+        member.displayName.toLowerCase().includes(searchName)
+    );
+    
+    if (partialMatches.size === 0) return null;
+    
+    let sortedMatches = partialMatches.sort((a, b) => {
+        const aUsername = a.user.username.toLowerCase();
+        const bUsername = b.user.username.toLowerCase();
+        const aDisplayName = a.displayName.toLowerCase();
+        const bDisplayName = b.displayName.toLowerCase();
+        
+        const aUsernameStarts = aUsername.startsWith(searchName) ? 0 : 1;
+        const bUsernameStarts = bUsername.startsWith(searchName) ? 0 : 1;
+        const aDisplayStarts = aDisplayName.startsWith(searchName) ? 0 : 1;
+        const bDisplayStarts = bDisplayName.startsWith(searchName) ? 0 : 1;
+        
+        const aBestStarts = Math.min(aUsernameStarts, aDisplayStarts);
+        const bBestStarts = Math.min(bUsernameStarts, bDisplayStarts);
+        
+        if (aBestStarts !== bBestStarts) return aBestStarts - bBestStarts;
+        
+        const aLen = Math.min(aUsername.length, aDisplayName.length);
+        const bLen = Math.min(bUsername.length, bDisplayName.length);
+        
+        return aLen - bLen;
+    });
+    
+    return sortedMatches.first()?.user || null;
+}
+
+async function parseSmartMentions(content, guild) {
+    if (!guild) return { content, mentionedUsers: [] };
+    
+    const mentionedUsers = [];
+    let processedContent = content;
+    
+    const existingMentions = content.match(/<@!?(\d{17,19})>/g);
+    if (existingMentions) {
+        for (const mention of existingMentions) {
+            const userId = mention.match(/\d{17,19}/)[0];
+            mentionedUsers.push(userId);
+        }
+    }
+    
+    const mentionPattern = /@([a-zA-Z0-9_.-]+)(?![\d>])/g;
+    const matches = [...content.matchAll(mentionPattern)];
+    
+    for (const match of matches) {
+        const [fullMatch, username] = match;
+        
+        if (fullMatch.includes('<@')) continue;
+        
+        const user = await findUserByPartialName(guild, username);
+        
+        if (user) {
+            processedContent = processedContent.replace(fullMatch, `<@${user.id}>`);
+            
+            if (!mentionedUsers.includes(user.id)) {
+                mentionedUsers.push(user.id);
+            }
+            
+            console.log(`Smart mention: "${username}" -> ${user.username} (${user.id})`);
+        }
+    }
+    
+    return { content: processedContent, mentionedUsers };
 }
 
 // === COMMAND FUNCTIONS ===
@@ -225,120 +399,53 @@ async function handleAnon(interaction, usernames) {
     safeReply(interaction, { content: `ur new anon username: **${username}**`, ephemeral: true });
 }
 
-// === SMART MENTION SYSTEM ===
-async function findUserByPartialName(guild, partialName) {
-    if (!guild) return null;
-    
-    const searchName = partialName.toLowerCase();
-    
-    // Try to fetch all members if not cached
-    try {
-        await guild.members.fetch();
-    } catch (err) {
-        console.warn("Could not fetch all members:", err.message);
-    }
-    
-    const members = guild.members.cache;
-    
-    // First try exact matches (case insensitive)
-    let exactMatch = members.find(member => 
-        member.user.username.toLowerCase() === searchName ||
-        member.displayName.toLowerCase() === searchName
-    );
-    
-    if (exactMatch) return exactMatch.user;
-    
-    // Then try partial matches - prioritize username matches
-    let partialMatches = members.filter(member =>
-        member.user.username.toLowerCase().includes(searchName) ||
-        member.displayName.toLowerCase().includes(searchName)
-    );
-    
-    if (partialMatches.size === 0) return null;
-    
-    // Sort by relevance (shorter names = better match)
-    let sortedMatches = partialMatches.sort((a, b) => {
-        const aUsername = a.user.username.toLowerCase();
-        const bUsername = b.user.username.toLowerCase();
-        const aDisplayName = a.displayName.toLowerCase();
-        const bDisplayName = b.displayName.toLowerCase();
-        
-        // Prioritize starts-with matches
-        const aUsernameStarts = aUsername.startsWith(searchName) ? 0 : 1;
-        const bUsernameStarts = bUsername.startsWith(searchName) ? 0 : 1;
-        const aDisplayStarts = aDisplayName.startsWith(searchName) ? 0 : 1;
-        const bDisplayStarts = bDisplayName.startsWith(searchName) ? 0 : 1;
-        
-        const aBestStarts = Math.min(aUsernameStarts, aDisplayStarts);
-        const bBestStarts = Math.min(bUsernameStarts, bDisplayStarts);
-        
-        if (aBestStarts !== bBestStarts) return aBestStarts - bBestStarts;
-        
-        // Then by length (shorter = better match)
-        const aLen = Math.min(aUsername.length, aDisplayName.length);
-        const bLen = Math.min(bUsername.length, bDisplayName.length);
-        
-        return aLen - bLen;
-    });
-    
-    return sortedMatches.first()?.user || null;
-}
-
-async function parseSmartMentions(content, guild) {
-    if (!guild) return { content, mentionedUsers: [] };
-    
-    const mentionedUsers = [];
-    let processedContent = content;
-    
-    // First, extract existing Discord mentions and add them to allowed list
-    const existingMentions = content.match(/<@!?(\d{17,19})>/g);
-    if (existingMentions) {
-        for (const mention of existingMentions) {
-            const userId = mention.match(/\d{17,19}/)[0];
-            mentionedUsers.push(userId);
-        }
-    }
-    
-    // Then process @word patterns that aren't already Discord mentions
-    const mentionPattern = /@([a-zA-Z0-9_.-]+)(?![\d>])/g;
-    const matches = [...content.matchAll(mentionPattern)];
-    
-    for (const match of matches) {
-        const [fullMatch, username] = match;
-        
-        // Skip if it's already a proper Discord mention
-        if (fullMatch.includes('<@')) continue;
-        
-        const user = await findUserByPartialName(guild, username);
-        
-        if (user) {
-            // Replace with proper Discord mention
-            processedContent = processedContent.replace(fullMatch, `<@${user.id}>`);
-            
-            // Add to mentioned users if not already there
-            if (!mentionedUsers.includes(user.id)) {
-                mentionedUsers.push(user.id);
-            }
-            
-            console.log(`Smart mention: "${username}" -> ${user.username} (${user.id})`);
-        }
-    }
-    
-    return { content: processedContent, mentionedUsers };
-}
-
 async function handleMessage(interaction, usernames) {
-    if (!usernames[interaction.user.id]) return safeReply(interaction, { content: "get an anon username first with `/anon`.", ephemeral: true });
+    if (!usernames[interaction.user.id]) {
+        return safeReply(interaction, { content: "get an anon username first with `/anon`.", ephemeral: true });
+    }
 
     const rawContent = interaction.options.getString("content");
     const attachment = interaction.options.getAttachment("attachment");
-    let files = [];
+    
+    // Determine which server to use
+    let targetServer;
+    let webhookUrl;
+    
+    if (interaction.guild) {
+        // Used in a server
+        const webhooks = loadServerWebhooks();
+        webhookUrl = webhooks[interaction.guild.id];
+        
+        if (!webhookUrl) {
+            return safeReply(interaction, { 
+                content: "No webhook set up for this server. Ask the owner to run `/setupwebhook`.", 
+                ephemeral: true 
+            });
+        }
+        
+        targetServer = interaction.guild;
+    } else {
+        // Used in DM
+        await safeReply(interaction, { content: "Processing...", ephemeral: true });
+        
+        const serverSelection = await promptServerSelection(interaction, interaction.user.id);
+        
+        if (!serverSelection.success) {
+            return interaction.followUp({ 
+                content: serverSelection.message || "No servers available.", 
+                ephemeral: true 
+            });
+        }
+        
+        webhookUrl = serverSelection.server.webhookUrl;
+        targetServer = client.guilds.cache.get(serverSelection.server.id);
+    }
 
+    let files = [];
     if (attachment) {
         const res = await fetch(attachment.url);
         const buf = await res.buffer();
         
-        // Auto-spoiler all attachments by adding SPOILER_ prefix
         const spoileredName = attachment.name.startsWith('SPOILER_') 
             ? attachment.name 
             : `SPOILER_${attachment.name}`;
@@ -347,8 +454,7 @@ async function handleMessage(interaction, usernames) {
     }
 
     // Process smart mentions
-    const guild = interaction.guild;
-    const { content, mentionedUsers } = await parseSmartMentions(rawContent, guild);
+    const { content, mentionedUsers } = await parseSmartMentions(rawContent, targetServer);
 
     const payload = {
         username: usernames[interaction.user.id],
@@ -364,24 +470,26 @@ async function handleMessage(interaction, usernames) {
     formData.append("payload_json", JSON.stringify(payload));
     files.forEach((f, i) => formData.append(`files[${i}]`, f.attachment, { filename: f.name }));
 
-    // === LOGGING FOR OWNER ===
     const messagePreview = content.length > 100 ? content.substring(0, 100) + "..." : content;
     const hasAttachment = attachment ? " [+spoilered file]" : "";
     const mentionLog = mentionedUsers.length > 0 ? ` [mentions: ${mentionedUsers.length}]` : "";
     
-    console.log(`${interaction.user.username} (${usernames[interaction.user.id]}): ${messagePreview}${hasAttachment}${mentionLog}`);
+    console.log(`[${targetServer.name}] ${interaction.user.username} (${usernames[interaction.user.id]}): ${messagePreview}${hasAttachment}${mentionLog}`);
 
-    await fetch(ANON_WEBHOOK_URL, { method: "POST", body: formData, headers: formData.getHeaders() });
-    safeReply(interaction, { content: "sent anon msg", ephemeral: true });
+    await fetch(webhookUrl, { method: "POST", body: formData, headers: formData.getHeaders() });
+    
+    if (interaction.guild) {
+        safeReply(interaction, { content: "sent anon msg", ephemeral: true });
+    } else {
+        interaction.followUp({ content: `Message sent to ${targetServer.name}`, ephemeral: true });
+    }
 }
 
 async function handleAnonDM(interaction, usernames) {
-    // Check if user has anonymous identity
     if (!usernames[interaction.user.id]) {
         return safeReply(interaction, { content: "get an anon username first with `/anon`.", ephemeral: true });
     }
 
-    // Check DM cooldown
     const dmCooldown = isOnDmCooldown(interaction.user.id);
     if (dmCooldown) {
         return safeReply(interaction, { content: `DM cooldown: ${dmCooldown}m left`, ephemeral: true });
@@ -391,12 +499,10 @@ async function handleAnonDM(interaction, usernames) {
     const content = interaction.options.getString("content");
     const attachment = interaction.options.getAttachment("attachment");
 
-    // Prevent self-DM
     if (targetUser.id === interaction.user.id) {
         return safeReply(interaction, { content: "can't DM yourself.", ephemeral: true });
     }
 
-    // Prevent DMing bots
     if (targetUser.bot) {
         return safeReply(interaction, { content: "can't DM bots.", ephemeral: true });
     }
@@ -404,7 +510,6 @@ async function handleAnonDM(interaction, usernames) {
     try {
         const senderAnonName = usernames[interaction.user.id];
         
-        // Format the DM message
         let dmContent = `**You've received an anonymous message from ${senderAnonName}**\n\n${content}`;
         
         let files = [];
@@ -412,7 +517,6 @@ async function handleAnonDM(interaction, usernames) {
             const res = await fetch(attachment.url);
             const buf = await res.buffer();
             
-            // Auto-spoiler all attachments in DMs too
             const spoileredName = attachment.name.startsWith('SPOILER_') 
                 ? attachment.name 
                 : `SPOILER_${attachment.name}`;
@@ -420,17 +524,14 @@ async function handleAnonDM(interaction, usernames) {
             files.push({ attachment: buf, name: spoileredName });
         }
 
-        // Send the DM
         if (files.length > 0) {
             await targetUser.send({ content: dmContent, files: files });
         } else {
             await targetUser.send(dmContent);
         }
 
-        // Set cooldown
         setDmCooldown(interaction.user.id);
 
-        // Log for moderation
         const messagePreview = content.length > 100 ? content.substring(0, 100) + "..." : content;
         const hasAttachment = attachment ? " [+spoilered file]" : "";
         console.log(`[ANON DM] ${interaction.user.username} (${senderAnonName}) -> ${targetUser.username}: ${messagePreview}${hasAttachment}`);
@@ -448,21 +549,63 @@ async function handleAnonDM(interaction, usernames) {
 }
 
 async function handleWipe(interaction, usernames) {
-    if (!usernames[interaction.user.id]) return safeReply(interaction, { content: "u don't have an anon identity.", ephemeral: true });
+    if (!usernames[interaction.user.id]) {
+        return safeReply(interaction, { content: "u don't have an anon identity.", ephemeral: true });
+    }
 
     const old = usernames[interaction.user.id];
     delete usernames[interaction.user.id];
     saveAnonUsernames(usernames);
     setCooldown(interaction.user.id);
 
-    const payload = {
-        username: old,
-        content: `**${old}** left the chat.`,
-        avatar_url: client.user.displayAvatarURL({ format: "png", size: 256 })
-    };
-    await fetch(ANON_WEBHOOK_URL, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+    // Send wipe message to current server if available
+    if (interaction.guild) {
+        const webhooks = loadServerWebhooks();
+        const webhookUrl = webhooks[interaction.guild.id];
+        
+        if (webhookUrl) {
+            const payload = {
+                username: old,
+                content: `**${old}** left the chat.`,
+                avatar_url: client.user.displayAvatarURL({ format: "png", size: 256 })
+            };
+            await fetch(webhookUrl, { 
+                method: "POST", 
+                headers: { "Content-Type": "application/json" }, 
+                body: JSON.stringify(payload) 
+            });
+        }
+    }
 
     safeReply(interaction, { content: `Anon identity **${old}** wiped. Cooldown: 5m`, ephemeral: true });
+}
+
+async function handleSetupWebhook(interaction) {
+    if (interaction.user.id !== OWNER_ID) {
+        return safeReply(interaction, { content: "Not allowed.", ephemeral: true });
+    }
+
+    if (!interaction.guild) {
+        return safeReply(interaction, { content: "This command must be used in a server.", ephemeral: true });
+    }
+
+    const webhookUrl = interaction.options.getString("webhook_url");
+    
+    // Validate webhook URL
+    if (!webhookUrl.includes('discord.com/api/webhooks/')) {
+        return safeReply(interaction, { content: "Invalid webhook URL.", ephemeral: true });
+    }
+
+    const webhooks = loadServerWebhooks();
+    webhooks[interaction.guild.id] = webhookUrl;
+    saveServerWebhooks(webhooks);
+
+    console.log(`[WEBHOOK SETUP] ${interaction.guild.name} (${interaction.guild.id})`);
+
+    safeReply(interaction, { 
+        content: `Webhook set up for **${interaction.guild.name}**`, 
+        ephemeral: true 
+    });
 }
 
 // === EVENT HANDLERS ===
@@ -471,14 +614,14 @@ client.once("ready", async () => {
     
     const statuses = [
         { name: "THE STRONGEST BATTLEGROUNDS", type: ActivityType.Playing },
-         { name: "in the phillipines", type: ActivityType.Playing },
-          { name: "aisar's a bum", type: ActivityType.Playing },
-           { name: "ay fuck u eye of heaven", type: ActivityType.Playing },
-            { name: "what? can't hear you little bud", type: ActivityType.Playing },
-             { name: "IN HELL", type: ActivityType.Playing },
-              { name: "BURNING", type: ActivityType.Playing },
-               { name: "HELP ME HELP ME SANTINO HAS ME HOSTAGE", type: ActivityType.Playing },
-                { name: "santino dont like me Bruh ima kms", type: ActivityType.Playing },
+        { name: "in the phillipines", type: ActivityType.Playing },
+        { name: "aisar's a bum", type: ActivityType.Playing },
+        { name: "ay fuck u eye of heaven", type: ActivityType.Playing },
+        { name: "what? can't hear you little bud", type: ActivityType.Playing },
+        { name: "IN HELL", type: ActivityType.Playing },
+        { name: "BURNING", type: ActivityType.Playing },
+        { name: "HELP ME HELP ME SANTINO HAS ME HOSTAGE", type: ActivityType.Playing },
+        { name: "santino dont like me Bruh ima kms", type: ActivityType.Playing },
     ];
     
     let currentStatus = 0;
@@ -504,12 +647,13 @@ client.on("interactionCreate", async (interaction) => {
         if (interaction.commandName === "message") return handleMessage(interaction, usernames);
         if (interaction.commandName === "anon_dm") return handleAnonDM(interaction, usernames);
         if (interaction.commandName === "wipe") return handleWipe(interaction, usernames);
+        if (interaction.commandName === "setupwebhook") return handleSetupWebhook(interaction);
         if (interaction.commandName === "credits") {
             const credits = loadCredits();
             return safeReply(interaction, { content: `Credits left: ${credits.remaining}, used: ${credits.used}`, ephemeral: true });
         }
         if (interaction.commandName === "resetcredits") {
-            if (interaction.user.id !== "249667396166483978") return safeReply(interaction, { content: "Not allowed.", ephemeral: true });
+            if (interaction.user.id !== OWNER_ID) return safeReply(interaction, { content: "Not allowed.", ephemeral: true });
             saveCredits({ remaining: INITIAL_CREDITS, used: 0 });
             return safeReply(interaction, { content: `Credits reset to ${INITIAL_CREDITS}`, ephemeral: true });
         }
