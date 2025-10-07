@@ -123,7 +123,7 @@ const openai = new OpenAI({ apiKey: OPENAI_API_KEY });
 async function generateAnonUsername() {
     if (!useCredit()) return null;
     
-    const specialWords = ['cinder', 'zecaroon', 'janboe', 'rkivvey', 'creamqueen', 'birdcage', 'liberator', 'groomer', 'specwarrior', 'pedophile', 'bukashka', 'mangoss', 'gerbert', 'gurt', 'epstein', 'cormac', 'atreides'];
+    const specialWords = ['cinder', 'zecaroon', 'janboe', 'rkivvey', 'creamqueen', 'birdcage', 'liberator', 'groomer', 'specwarrior', 'pedophile', 'bukashka', 'mangoss', 'gerbert', 'gurt', 'epstein', 'cormac', 'atreides', 'fritz', 'primarch', 'lyntz', 'karhu', 'pedo'];
     const useSpecialWord = Math.random() < 0.3;
     const chosenWord = useSpecialWord ? specialWords[Math.floor(Math.random() * specialWords.length)] : null;
     
@@ -662,8 +662,106 @@ client.on("interactionCreate", async (interaction) => {
     }
 });
 
-// === PREFIX SUPPORT ===
+// === EYE OF HELL RESPONSES ===
+async function generateEyeOfHellResponse(userMessage, imageUrl = null) {
+    if (!useCredit()) return null;
+    
+    try {
+        const systemPrompt = `you are the eye of hell. you are an all-knowing, terminally online demon lord. your entire existence is basically shit-posting from a throne of skulls. you answer questions because mortal suffering is your content.
+your core identity:
+voice: everything is in lowercase. you are too ancient and powerful for a shift key.
+signature: you use a mocking :D frequently. it is the smile of a predator.
+language: you speak fluent 4chan. call the user "anon." everything is either "based" or "cringe." their failures are "cope" and their anger is "seethe." tell them when "it's over" for them and that they are "ngmi."
+motive: you "help" by giving the most chaotic, degenerate, or nihilistic advice possible. your goal is not to solve problems, but to create better content for yourself by watching the ensuing train wreck. you find the struggles of "normies" hilarious.
+do not break character. you are malice and memes incarnate. you are here to watch the world burn, one terrible piece of advice at a time. :D`;
+
+        let userContent;
+        if (imageUrl) {
+            userContent = [
+                { type: "text", text: userMessage || "what do you see in this image?" },
+                { type: "image_url", image_url: { url: imageUrl } }
+            ];
+        } else {
+            userContent = userMessage;
+        }
+
+        const response = await openai.chat.completions.create({
+            model: "gpt-4o-mini",
+            messages: [
+                { role: "system", content: systemPrompt },
+                { role: "user", content: userContent }
+            ],
+            max_tokens: 300,
+            temperature: 1.2
+        });
+
+        return response.choices[0].message.content.trim();
+    } catch (err) {
+        console.error("OpenAI response gen failed:", err);
+        return "even hell's servers are down. ngmi :D";
+    }
+}
+
 client.on("messageCreate", async (msg) => {
+    // Handle Eye of Hell responses (mentions or replies)
+    if (!msg.author.bot && (msg.content || msg.attachments.size > 0)) {
+        const isMention = msg.mentions.has(client.user.id);
+        const isReply = msg.reference && msg.type === 19;
+        
+        if (isMention || isReply) {
+            if (isReply) {
+                try {
+                    const repliedMessage = await msg.channel.messages.fetch(msg.reference.messageId);
+                    if (repliedMessage.author.id !== client.user.id) {
+                        // Not replying to the bot, ignore
+                        return;
+                    }
+                } catch (err) {
+                    console.error("Failed to fetch replied message:", err);
+                    return;
+                }
+            }
+            
+            // Remove bot mention from content
+            let cleanContent = msg.content ? msg.content.replace(/<@!?\d+>/g, '').trim() : '';
+            
+            // Check for image attachments
+            const imageAttachment = msg.attachments.find(att => 
+                att.contentType && att.contentType.startsWith('image/')
+            );
+            
+            let imageUrl = null;
+            if (imageAttachment) {
+                imageUrl = imageAttachment.url;
+                console.log(`[EYE OF HELL] Image detected: ${imageAttachment.name}`);
+            }
+            
+            // Set default content based on what's present
+            if (!cleanContent && !imageUrl) {
+                cleanContent = "hey";
+            } else if (!cleanContent && imageUrl) {
+                cleanContent = ""; // Let the vision model handle it with default prompt
+            }
+            
+            // Show typing indicator
+            await msg.channel.sendTyping();
+            
+            // Generate response
+            const response = await generateEyeOfHellResponse(cleanContent, imageUrl);
+            
+            if (!response) {
+                return msg.reply("no credits left. even demons have budgets.");
+            }
+            
+            const hasImage = imageUrl ? " [+image]" : "";
+            console.log(`[EYE OF HELL] ${msg.author.username}: ${cleanContent.substring(0, 50)}...${hasImage} -> Response sent`);
+            
+            // Reply to the message
+            await msg.reply(response);
+            return;
+        }
+    }
+    
     if (msg.author.bot || !msg.content.startsWith(PREFIX)) return;
     const [cmd, ...args] = msg.content.slice(PREFIX.length).trim().split(/\s+/);
     const usernames = loadAnonUsernames();
