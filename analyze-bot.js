@@ -195,8 +195,9 @@ async function generateResponse(userMessage, serverId, imageUrl = null) {
                 throw new Error(`Unknown AI provider: ${AI_PROVIDER}`);
         }
     } catch (err) {
-        console.error(`${AI_PROVIDER} response failed:`, err);
-        return "something broke. feed me more words to fix it.";
+        console.error(`${AI_PROVIDER} response failed:`, err.message);
+        console.error("Full error:", err);
+        return `ai broke: ${err.message}`;
     }
 }
 
@@ -229,6 +230,21 @@ async function callOpenAI(systemPrompt, userMessage, imageUrl) {
     });
 
     const data = await response.json();
+    
+    // Debug logging
+    console.log("OpenAI Response Status:", response.status);
+    console.log("OpenAI Response Data:", JSON.stringify(data, null, 2));
+    
+    // Check for API errors
+    if (!response.ok) {
+        throw new Error(`OpenAI API Error: ${response.status} - ${data.error?.message || 'Unknown error'}`);
+    }
+    
+    // Check if choices exist
+    if (!data.choices || !data.choices[0] || !data.choices[0].message) {
+        throw new Error(`Invalid OpenAI response structure: ${JSON.stringify(data)}`);
+    }
+    
     return data.choices[0].message.content.trim();
 }
 
@@ -422,6 +438,7 @@ const commands = [
     new SlashCommandBuilder().setName("messagecount").setDescription("View message count for this server"),
     new SlashCommandBuilder().setName("resetmessages").setDescription("Reset bot memory for this server (admin only)"),
     new SlashCommandBuilder().setName("aiprovider").setDescription("View current AI provider info"),
+    new SlashCommandBuilder().setName("testapi").setDescription("Test AI API connection (owner only)"),
 ];
 
 async function deployCommands() {
@@ -826,7 +843,7 @@ async function handleMessages(interaction) {
         return safeReply(interaction, { content: "This command only works in servers.", ephemeral: true });
     }
     
-    if (interaction.user.id !== OWNER_ID) {
+    if (!interaction.member.permissions.has('Administrator') && interaction.user.id !== OWNER_ID) {
         return safeReply(interaction, { content: "You need administrator permissions.", ephemeral: true });
     }
     
@@ -839,6 +856,7 @@ async function handleMessages(interaction) {
         });
     }
     
+    // Show last 10 messages
     const recentMessages = messages.slice(-10);
     let response = `**${interaction.guild.name} - Stored Messages (last 10 of ${messages.length})**\n\`\`\`\n`;
     
@@ -849,6 +867,7 @@ async function handleMessages(interaction) {
     
     response += '\`\`\`';
     
+    // Discord has a 2000 character limit
     if (response.length > 1900) {
         response = response.substring(0, 1900) + '...\n```';
     }
@@ -902,6 +921,35 @@ async function handleAIProvider(interaction) {
     safeReply(interaction, { content: response, ephemeral: true });
 }
 
+async function handleTestAPI(interaction) {
+    if (interaction.user.id !== OWNER_ID) {
+        return safeReply(interaction, { content: "Owner only.", ephemeral: true });
+    }
+    
+    await safeReply(interaction, { content: "Testing API connection...", ephemeral: true });
+    
+    try {
+        const testResponse = await generateResponse("test", "test_server");
+        
+        if (testResponse) {
+            interaction.followUp({ 
+                content: `✅ API Test Successful!\nProvider: ${AI_PROVIDER}\nModel: ${AI_MODEL}\nResponse: "${testResponse}"`, 
+                ephemeral: true 
+            });
+        } else {
+            interaction.followUp({ 
+                content: `❌ API Test Failed - No response generated (likely out of credits)`, 
+                ephemeral: true 
+            });
+        }
+    } catch (err) {
+        interaction.followUp({ 
+            content: `❌ API Test Failed: ${err.message}`, 
+            ephemeral: true 
+        });
+    }
+}
+
 // === EVENT HANDLERS ===
 client.once("ready", async () => {
     console.log(`${client.user.tag} online`);
@@ -943,6 +991,7 @@ client.on("interactionCreate", async (interaction) => {
         if (interaction.commandName === "messagecount") return handleMessageCount(interaction);
         if (interaction.commandName === "resetmessages") return handleResetMessages(interaction);
         if (interaction.commandName === "aiprovider") return handleAIProvider(interaction);
+        if (interaction.commandName === "testapi") return handleTestAPI(interaction);
         if (interaction.commandName === "credits") {
             const credits = loadCredits();
             return safeReply(interaction, { content: `Credits left: ${credits.remaining}, used: ${credits.used}`, ephemeral: true });
