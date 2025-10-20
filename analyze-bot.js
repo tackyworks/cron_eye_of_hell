@@ -182,35 +182,18 @@ class MarkovChain {
         this.buildChain(messages);
     }
     
-    buildChain(messages) {
+    
+buildChain(messages) {
     const text = messages
         .filter(msg => msg && msg.length > 0)
         .join(' ');
         
     if (text.length < 10) return;
     
-    // More comprehensive URL pattern that catches various formats
-    const urlPattern = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|([\w-]+\.(?:com|net|org|gov|edu|io|co|me|tv|gg|cdn\.discordapp\.com|youtube\.com)[^\s]*)/gi;
-    const urls = [];
-    let processedText = text.replace(urlPattern, (match) => {
-        urls.push(match);
-        return `__URL_${urls.length - 1}__`;
-    });
-
-    // Split into words, preserving URL placeholders
-    let words = processedText.split(/\s+/).filter(word => word.length > 0);
-
-    // Restore URLs - this should happen BEFORE building the chain
-    words = words.map(word => {
-        const urlMatch = word.match(/^__URL_(\d+)__$/);
-        if (urlMatch) {
-            const urlIndex = parseInt(urlMatch[1]);
-            return urls[urlIndex] || word;
-        }
-        return word;
-    });
+    // Simple word split - URLs will naturally be preserved as single words
+    const words = text.split(/\s+/).filter(word => word.length > 0);
     
-    // Build the chain from ALL words (URLs are now restored)
+    // Build the chain from all words
     for (let i = 0; i < words.length - this.order; i++) {
         const key = words.slice(i, i + this.order).join(' ');
         const nextWord = words[i + this.order];
