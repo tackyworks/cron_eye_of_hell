@@ -205,77 +205,71 @@ buildChain(messages) {
     }
 }
     
-    generateText(maxLength = 25, startWord = null) {
-        if (Object.keys(this.chain).length === 0) {
-            return "not enough data yet";
-        }
-        
-        // Find starting point
-        let currentKey;
-        if (startWord) {
-            const matchingKeys = Object.keys(this.chain).filter(key => 
-                key.toLowerCase().startsWith(startWord.toLowerCase())
-            );
-            currentKey = matchingKeys.length > 0 
-                ? matchingKeys[Math.floor(Math.random() * matchingKeys.length)]
-                : this.getRandomKey();
-        } else {
-            currentKey = this.getRandomKey();
-        }
-        
-        if (!currentKey) return "not enough data yet";
-        
-        const words = currentKey.split(' ');
-        let attempts = 0;
-        const maxAttempts = 100; // Prevent infinite loops
-        
-        // Generate text with better randomization
-        for (let i = 0; i < maxLength && attempts < maxAttempts; i++) {
-            const possibleNext = this.chain[currentKey];
-            
-            if (!possibleNext || possibleNext.length === 0) {
-                // Try a random restart if we hit a dead end early
-                if (words.length < 5) {
-                    currentKey = this.getRandomKey();
-                    if (currentKey) {
-                        words.push('...', ...currentKey.split(' '));
-                        attempts++;
-                        continue;
-                    }
-                }
-                break;
-            }
-            
-            // Add randomization - sometimes pick less common words
-            let nextWord;
-            if (possibleNext.length > 1 && Math.random() < 0.3) {
-                // 30% chance to pick a random word instead of most common
-                nextWord = possibleNext[Math.floor(Math.random() * possibleNext.length)];
-            } else {
-                nextWord = possibleNext[Math.floor(Math.random() * possibleNext.length)];
-            }
-            
-            words.push(nextWord);
-            
-            // Update current key for next iteration
-            currentKey = words.slice(-this.order).join(' ');
-            attempts++;
-        }
-        
-        let result = words.join(' ')
-            .replace(/\s+/g, ' ')
-            .trim();
-
-        if (result.length > 200) {
-            result = result.substring(0, 200);
-            const lastSpace = result.lastIndexOf(' ');
-            if (lastSpace > 100) { 
-                result = result.substring(0, lastSpace);
-            }
-        }
-
-        return result;
+   generateText(maxLength = 25, startWord = null) {
+    if (Object.keys(this.chain).length === 0) {
+        return "not enough data yet";
     }
+    
+    // Find starting point
+    let currentKey;
+    if (startWord) {
+        const matchingKeys = Object.keys(this.chain).filter(key => 
+            key.toLowerCase().startsWith(startWord.toLowerCase())
+        );
+        currentKey = matchingKeys.length > 0 
+            ? matchingKeys[Math.floor(Math.random() * matchingKeys.length)]
+            : this.getRandomKey();
+    } else {
+        currentKey = this.getRandomKey();
+    }
+    
+    if (!currentKey) return "not enough data yet";
+    
+    const words = currentKey.split(' ');
+    let attempts = 0;
+    const maxAttempts = 100; // Prevent infinite loops
+    
+    // Generate text with PURE randomness
+    for (let i = 0; i < maxLength && attempts < maxAttempts; i++) {
+        const possibleNext = this.chain[currentKey];
+        
+        if (!possibleNext || possibleNext.length === 0) {
+            // Try a random restart if we hit a dead end early
+            if (words.length < 5) {
+                currentKey = this.getRandomKey();
+                if (currentKey) {
+                    words.push('...', ...currentKey.split(' '));
+                    attempts++;
+                    continue;
+                }
+            }
+            break;
+        }
+        
+        // PURE RANDOM - no probability weighting
+        const nextWord = possibleNext[Math.floor(Math.random() * possibleNext.length)];
+        
+        words.push(nextWord);
+        
+        // Update current key for next iteration
+        currentKey = words.slice(-this.order).join(' ');
+        attempts++;
+    }
+    
+    let result = words.join(' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+
+    if (result.length > 200) {
+        result = result.substring(0, 200);
+        const lastSpace = result.lastIndexOf(' ');
+        if (lastSpace > 100) { 
+            result = result.substring(0, lastSpace);
+        }
+    }
+
+    return result;
+}
     
     getRandomKey() {
         const keys = Object.keys(this.chain);
@@ -284,25 +278,15 @@ buildChain(messages) {
 }
 
 function generateMarkovResponse(serverId, userMessage = '') {
-    const messages = getServerMessages(serverId); // Gets ALL messages, not recent
+    const messages = getServerMessages(serverId);
     
     if (messages.length < 1) {
         return "no messages stored yet";
     }
     
-    // Use ALL messages to build the chain
     const markov = new MarkovChain(messages, 2);
     
-    // Try to use a word from the user's message as a starting point
-    let startWord = null;
-    if (userMessage && userMessage.trim().length > 0) {
-        const userWords = userMessage.toLowerCase().split(' ').filter(word => word.length > 2);
-        if (userWords.length > 0 && Math.random() < 0.7) { // 70% chance to use user word
-            startWord = userWords[Math.floor(Math.random() * userWords.length)];
-        }
-    }
-    
-    const response = markov.generateText(25, startWord);
+    const response = markov.generateText(25, null);
     return response || "generation failed";
 }
 
