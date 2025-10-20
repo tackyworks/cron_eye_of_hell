@@ -1039,7 +1039,7 @@ async function handleOwnerCommands(msg, cmd, args) {
         
         console.log(`[MESSAGE RESET] ${msg.guild.name} (${msg.guild.id})`);
         
-        return msg.reply(`Bot memory reset for **${msg.guild.name}**. The bot is now a blank slate.`);
+        return msg.reply(`goodbye **${msg.guild.name}**. https://tenor.com/view/forget-it-flash-men-in-black-will-smith-gif-19235596`);
     }
     
     if (cmd === "aiprovider" || cmd === "provider") {
