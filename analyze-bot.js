@@ -183,43 +183,44 @@ class MarkovChain {
     }
     
     buildChain(messages) {
-        const text = messages
-            .filter(msg => msg && msg.length > 0) // Only filter completely empty
-            .join(' ') // Simple space separation
-            
-        if (text.length < 10) return; // Need more data
+    const text = messages
+        .filter(msg => msg && msg.length > 0)
+        .join(' ');
         
-        const urlPattern = /(https?:\/\/[^\s]+|www\.[^\s]+|[^\s]*\.(?:com|net|org|gov|edu|io|co|me|tv|gg|cdn\.discordapp\.com)[^\s]*)/gi;
-        const urls = [];
-        let processedText = text.replace(urlPattern, (match) => {
-            urls.push(match);
-            return `__URL_${urls.length - 1}__`;
-        });
+    if (text.length < 10) return;
+    
+    // More comprehensive URL pattern that catches various formats
+    const urlPattern = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|([\w-]+\.(?:com|net|org|gov|edu|io|co|me|tv|gg|cdn\.discordapp\.com|youtube\.com)[^\s]*)/gi;
+    const urls = [];
+    let processedText = text.replace(urlPattern, (match) => {
+        urls.push(match);
+        return `__URL_${urls.length - 1}__`;
+    });
 
-        // Split into words, preserving URL placeholders
-        let words = processedText.split(' ').filter(word => word.length > 0);
+    // Split into words, preserving URL placeholders
+    let words = processedText.split(/\s+/).filter(word => word.length > 0);
 
-        // Restore URLs
-        words = words.map(word => {
-            const urlMatch = word.match(/^__URL_(\d+)__$/);
-            if (urlMatch) {
-                const urlIndex = parseInt(urlMatch[1]);
-                return urls[urlIndex] || word;
-            }
-            return word;
-        });
-        
-        // Build the chain from ALL words
-        for (let i = 0; i < words.length - this.order; i++) {
-            const key = words.slice(i, i + this.order).join(' ');
-            const nextWord = words[i + this.order];
-            
-            if (!this.chain[key]) {
-                this.chain[key] = [];
-            }
-            this.chain[key].push(nextWord);
+    // Restore URLs - this should happen BEFORE building the chain
+    words = words.map(word => {
+        const urlMatch = word.match(/^__URL_(\d+)__$/);
+        if (urlMatch) {
+            const urlIndex = parseInt(urlMatch[1]);
+            return urls[urlIndex] || word;
         }
+        return word;
+    });
+    
+    // Build the chain from ALL words (URLs are now restored)
+    for (let i = 0; i < words.length - this.order; i++) {
+        const key = words.slice(i, i + this.order).join(' ');
+        const nextWord = words[i + this.order];
+        
+        if (!this.chain[key]) {
+            this.chain[key] = [];
+        }
+        this.chain[key].push(nextWord);
     }
+}
     
     generateText(maxLength = 25, startWord = null) {
         if (Object.keys(this.chain).length === 0) {
