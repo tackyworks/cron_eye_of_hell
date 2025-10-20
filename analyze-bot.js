@@ -33,6 +33,7 @@ const PREFIX = "!";
 const ANON_USERNAMES_FILE = path.join(__dirname, "anon_usernames.json");
 const COOLDOWNS_FILE = path.join(__dirname, "anon_cooldowns.json");
 const DM_COOLDOWNS_FILE = path.join(__dirname, "dm_cooldowns.json");
+const RESPONSES_DISABLED_FILE = path.join(__dirname, "responses_disabled.json");
 const CREDITS_FILE = path.join(__dirname, "credits.json");
 const SERVER_WEBHOOKS_FILE = path.join(__dirname, "server_webhooks.json");
 const SERVER_MESSAGES_FILE = path.join(__dirname, "server_messages.json");
@@ -59,6 +60,20 @@ function saveFile(file, data) {
     } catch (e) {
         console.error(`Error saving ${file}:`, e);
     }
+}
+
+function loadResponsesDisabled() { return loadFile(RESPONSES_DISABLED_FILE, {}); }
+function saveResponsesDisabled(data) { saveFile(RESPONSES_DISABLED_FILE, data); }
+
+function isResponsesDisabled(serverId) {
+    const disabled = loadResponsesDisabled();
+    return disabled[serverId] || false;
+}
+
+function setResponsesDisabled(serverId, state) {
+    const disabled = loadResponsesDisabled();
+    disabled[serverId] = state;
+    saveResponsesDisabled(disabled);
 }
 
 function loadAnonUsernames() { return loadFile(ANON_USERNAMES_FILE, {}); }
@@ -168,33 +183,32 @@ class MarkovChain {
     }
     
     buildChain(messages) {
-
-       const text = messages
-    .filter(msg => msg && msg.length > 0) // Only filter completely empty
-    .join(' ') // Simple space separation
-    .toLowerCase();
+        const text = messages
+            .filter(msg => msg && msg.length > 0) // Only filter completely empty
+            .join(' ') // Simple space separation
+            .toLowerCase();
             
         if (text.length < 10) return; // Need more data
         
-const urlPattern = /(https?:\/\/[^\s]+|www\.[^\s]+|[^\s]*\.(?:com|net|org|gov|edu|io|co|me|tv|gg|cdn\.discordapp\.com)[^\s]*)/gi;
-const urls = [];
-let processedText = text.replace(urlPattern, (match) => {
-    urls.push(match);
-    return `__URL_${urls.length - 1}__`;
-});
+        const urlPattern = /(https?:\/\/[^\s]+|www\.[^\s]+|[^\s]*\.(?:com|net|org|gov|edu|io|co|me|tv|gg|cdn\.discordapp\.com)[^\s]*)/gi;
+        const urls = [];
+        let processedText = text.replace(urlPattern, (match) => {
+            urls.push(match);
+            return `__URL_${urls.length - 1}__`;
+        });
 
-// Split into words, preserving URL placeholders
-let words = processedText.split(' ').filter(word => word.length > 0);
+        // Split into words, preserving URL placeholders
+        let words = processedText.split(' ').filter(word => word.length > 0);
 
-// Restore URLs
-words = words.map(word => {
-    const urlMatch = word.match(/^__URL_(\d+)__$/);
-    if (urlMatch) {
-        const urlIndex = parseInt(urlMatch[1]);
-        return urls[urlIndex] || word;
-    }
-    return word;
-});
+        // Restore URLs
+        words = words.map(word => {
+            const urlMatch = word.match(/^__URL_(\d+)__$/);
+            if (urlMatch) {
+                const urlIndex = parseInt(urlMatch[1]);
+                return urls[urlIndex] || word;
+            }
+            return word;
+        });
         
         // Build the chain from ALL words
         for (let i = 0; i < words.length - this.order; i++) {
@@ -266,19 +280,19 @@ words = words.map(word => {
         }
         
         let result = words.join(' ')
-    .replace(/\s+/g, ' ')
-    .replace(/\s*\.\s*/g, '. ')
-    .trim();
+            .replace(/\s+/g, ' ')
+            .replace(/\s*\.\s*/g, '. ')
+            .trim();
 
-if (result.length > 200) {
-    result = result.substring(0, 200);
-    const lastSpace = result.lastIndexOf(' ');
-    if (lastSpace > 100) { 
-        result = result.substring(0, lastSpace);
-    }
-}
+        if (result.length > 200) {
+            result = result.substring(0, 200);
+            const lastSpace = result.lastIndexOf(' ');
+            if (lastSpace > 100) { 
+                result = result.substring(0, lastSpace);
+            }
+        }
 
-return result;
+        return result;
     }
     
     getRandomKey() {
@@ -994,6 +1008,23 @@ async function handleSetupWebhook(interaction) {
 async function handleOwnerCommands(msg, cmd, args) {
     if (msg.author.id !== OWNER_ID) return;
     
+    if (cmd === "disableresponses" || cmd === "disable") {
+        if (!msg.guild) return msg.reply("Server only command.");
+        
+        const currentState = isResponsesDisabled(msg.guild.id);
+        setResponsesDisabled(msg.guild.id, !currentState);
+        
+        if (!currentState) {
+            // Just disabled responses
+            return msg.reply({
+                content: "DOMAIN EXPANSION\nhttps://tenor.com/view/gojo-domain-expansion-gif-19197982"
+            });
+        } else {
+            // Just enabled responses
+            return msg.reply("Markov responses re-enabled!");
+        }
+    }
+    
     if (cmd === "messages") {
         if (!msg.guild) return msg.reply("Server only command.");
         
@@ -1089,6 +1120,7 @@ async function handleOwnerCommands(msg, cmd, args) {
 \`!test\` - Test Markov generation
 \`!credits\` - View credit info
 \`!resetcredits\` - Reset credits
+\`!disable\` - Toggle Markov responses on/off
 \`!help\` - This message`;
         
         return msg.reply(helpText);
@@ -1159,9 +1191,18 @@ client.on("messageCreate", async (msg) => {
                 }
             }
             
-            // FIXED: Only store USER messages, not bot messages
+            // Store USER messages for learning
             if (!msg.author.bot) {
                 addMessageToServer(msg.guild.id, msg.content || "[image/attachment]");
+            }
+            
+            // Check if responses are disabled first
+            if (isResponsesDisabled(msg.guild.id)) {
+                console.log(`[DISABLED] ${msg.guild.name} - Responses disabled, sending void response`);
+                return msg.reply({
+                    content: "euhfhghhheuhfg..\nhttps://tenor.com/view/infinite-void-gif-11396173772646734053",
+                    allowedMentions: { parse: [] }
+                });
             }
             
             let cleanContent = msg.content ? msg.content.replace(/<@!?\d+>/g, '').trim() : '';
@@ -1184,14 +1225,13 @@ client.on("messageCreate", async (msg) => {
             await msg.channel.sendTyping();
             
             // Generate response (Markov by default)
-           const response = await generateResponse(cleanContent, msg.guild.id, imageUrl);
+            const response = await generateResponse(cleanContent, msg.guild.id, imageUrl);
             
             if (!response) {
                 return msg.reply("something went wrong with text generation");
             }
             
-            
-           const cleanResponse = response
+            const cleanResponse = response
                 .replace(new RegExp(`<@!?${client.user.id}>`, 'g'), '') // Remove self-mentions
                 .replace(/@everyone/g, 'everyone') // Remove @everyone
                 .replace(/@here/g, 'here') // Remove @here
@@ -1201,16 +1241,19 @@ client.on("messageCreate", async (msg) => {
             const hasImage = imageUrl ? " [+image]" : "";
             console.log(`[${generationMode}] ${msg.guild.name} - ${msg.author.username}: ${cleanContent.substring(0, 50)}...${hasImage} -> Response sent`);
             
-           await msg.reply({
-    content: cleanResponse || "empty response",
-    allowedMentions: { parse: [] }
-});
+            await msg.reply({
+                content: cleanResponse || "empty response",
+                allowedMentions: { parse: [] }
+            });
             return;
         }
         
-        // Store ALL USER messages for learning (not bot messages)
+        // Store ALL USER messages for learning (when not mentioning bot)
         if (!msg.author.bot && msg.content && msg.content.length > 3) {
-            addMessageToServer(msg.guild.id, msg.content);
+            // Don't store messages that are just role mentions
+            if (!/<@&\d{17,19}>/.test(msg.content)) {
+                addMessageToServer(msg.guild.id, msg.content);
+            }
         }
     }
     
