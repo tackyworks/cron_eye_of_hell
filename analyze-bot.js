@@ -1133,7 +1133,12 @@ client.on("messageCreate", async (msg) => {
             // Store bot response too
             addMessageToServer(msg.guild.id, response);
             
-            const cleanResponse = response.replace(new RegExp(`<@!?${client.user.id}>`, 'g'), '').trim();
+           const cleanResponse = response
+                .replace(new RegExp(`<@!?${client.user.id}>`, 'g'), '') // Remove self-mentions
+                .replace(/@everyone/g, 'everyone') // Remove @everyone
+                .replace(/@here/g, 'here') // Remove @here
+                .trim();
+            
             const generationMode = AI_PROVIDER === 'disabled' ? 'MARKOV' : AI_PROVIDER.toUpperCase();
             const hasImage = imageUrl ? " [+image]" : "";
             console.log(`[${generationMode}] ${msg.guild.name} - ${msg.author.username}: ${cleanContent.substring(0, 50)}...${hasImage} -> Response sent`);
