@@ -168,11 +168,11 @@ class MarkovChain {
     }
     
     buildChain(messages) {
-        // FIXED: Use proper sentence boundaries and use ALL messages
-        const text = messages
-            .filter(msg => msg && msg.length > 0) // Only filter completely empty
-            .join(' . ') // Add periods between messages for proper boundaries
-            .toLowerCase();
+
+       const text = messages
+    .filter(msg => msg && msg.length > 0) // Only filter completely empty
+    .join(' ') // Simple space separation
+    .toLowerCase();
             
         if (text.length < 10) return; // Need more data
         
@@ -1183,7 +1183,10 @@ client.on("messageCreate", async (msg) => {
             const hasImage = imageUrl ? " [+image]" : "";
             console.log(`[${generationMode}] ${msg.guild.name} - ${msg.author.username}: ${cleanContent.substring(0, 50)}...${hasImage} -> Response sent`);
             
-            await msg.reply(cleanResponse || "empty response");
+           await msg.reply({
+    content: cleanResponse || "empty response",
+    allowedMentions: { parse: [] }
+});
             return;
         }
         
