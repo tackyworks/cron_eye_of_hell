@@ -140,8 +140,8 @@ function addMessageToServer(serverId, message) {
     serverMessages[serverId].push(message);
     
     // Keep only the last 500 messages for Markov chains (more data = better chains)
-    if (serverMessages[serverId].length > 500) {
-        serverMessages[serverId] = serverMessages[serverId].slice(-500);
+    if (serverMessages[serverId].length > 2000) {
+        serverMessages[serverId] = serverMessages[serverId].slice(-2000);
     }
     
     saveServerMessages(serverMessages);
