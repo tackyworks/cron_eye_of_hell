@@ -264,7 +264,6 @@ buildChain(messages) {
         
         let result = words.join(' ')
             .replace(/\s+/g, ' ')
-            .replace(/\s*\.\s*/g, '. ')
             .trim();
 
         if (result.length > 200) {
