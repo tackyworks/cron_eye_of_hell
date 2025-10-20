@@ -168,13 +168,13 @@ class MarkovChain {
     }
     
     buildChain(messages) {
-        // USE ALL MESSAGES - NO SLICING OR RECENT FILTERING
+        // FIXED: Use proper sentence boundaries and use ALL messages
         const text = messages
             .filter(msg => msg && msg.length > 0) // Only filter completely empty
-            .join(' ')
+            .join(' . ') // Add periods between messages for proper boundaries
             .toLowerCase();
             
-        if (text.length < 5) return; // Minimal check
+        if (text.length < 10) return; // Need more data
         
         const words = text.split(' ').filter(word => word.length > 0);
         
@@ -190,7 +190,7 @@ class MarkovChain {
         }
     }
     
-    generateText(maxLength = 30, startWord = null) {
+    generateText(maxLength = 25, startWord = null) {
         if (Object.keys(this.chain).length === 0) {
             return "not enough data yet";
         }
@@ -211,22 +211,56 @@ class MarkovChain {
         if (!currentKey) return "not enough data yet";
         
         const words = currentKey.split(' ');
+        let attempts = 0;
+        const maxAttempts = 100; // Prevent infinite loops
         
-        // Generate text
-        for (let i = 0; i < maxLength; i++) {
+        // Generate text with better randomization
+        for (let i = 0; i < maxLength && attempts < maxAttempts; i++) {
             const possibleNext = this.chain[currentKey];
             
             if (!possibleNext || possibleNext.length === 0) {
+                // Try a random restart if we hit a dead end early
+                if (words.length < 5) {
+                    currentKey = this.getRandomKey();
+                    if (currentKey) {
+                        words.push('...', ...currentKey.split(' '));
+                        attempts++;
+                        continue;
+                    }
+                }
                 break;
             }
             
-            const nextWord = possibleNext[Math.floor(Math.random() * possibleNext.length)];
+            // Add randomization - sometimes pick less common words
+            let nextWord;
+            if (possibleNext.length > 1 && Math.random() < 0.3) {
+                // 30% chance to pick a random word instead of most common
+                nextWord = possibleNext[Math.floor(Math.random() * possibleNext.length)];
+            } else {
+                nextWord = possibleNext[Math.floor(Math.random() * possibleNext.length)];
+            }
+            
             words.push(nextWord);
             
+            // Update current key for next iteration
             currentKey = words.slice(-this.order).join(' ');
+            attempts++;
         }
         
-        return words.join(' ').substring(0, 200);
+        let result = words.join(' ')
+    .replace(/\s+/g, ' ')
+    .replace(/\s*\.\s*/g, '. ')
+    .trim();
+
+if (result.length > 200) {
+    result = result.substring(0, 200);
+    const lastSpace = result.lastIndexOf(' ');
+    if (lastSpace > 100) { 
+        result = result.substring(0, lastSpace);
+    }
+}
+
+return result;
     }
     
     getRandomKey() {
@@ -249,12 +283,12 @@ function generateMarkovResponse(serverId, userMessage = '') {
     let startWord = null;
     if (userMessage && userMessage.trim().length > 0) {
         const userWords = userMessage.toLowerCase().split(' ').filter(word => word.length > 2);
-        if (userWords.length > 0) {
+        if (userWords.length > 0 && Math.random() < 0.7) { // 70% chance to use user word
             startWord = userWords[Math.floor(Math.random() * userWords.length)];
         }
     }
     
-    const response = markov.generateText(30, startWord);
+    const response = markov.generateText(25, startWord);
     return response || "generation failed";
 }
 
@@ -1008,8 +1042,8 @@ async function handleOwnerCommands(msg, cmd, args) {
         
         const messages = getServerMessages(msg.guild.id);
         
-        if (messages.length < 5) {
-            return msg.reply("Not enough messages to test Markov chains. Need at least 5 messages.");
+        if (messages.length < 1) {
+            return msg.reply("Not enough messages to test Markov chains. Need at least 1 message.");
         }
         
         const testResponse = generateMarkovResponse(msg.guild.id, "test");
@@ -1107,8 +1141,10 @@ client.on("messageCreate", async (msg) => {
                 }
             }
             
-            // Store the message
-            addMessageToServer(msg.guild.id, msg.content || "[image/attachment]");
+            // FIXED: Only store USER messages, not bot messages
+            if (!msg.author.bot) {
+                addMessageToServer(msg.guild.id, msg.content || "[image/attachment]");
+            }
             
             let cleanContent = msg.content ? msg.content.replace(/<@!?\d+>/g, '').trim() : '';
             
@@ -1136,6 +1172,7 @@ client.on("messageCreate", async (msg) => {
                 return msg.reply("something went wrong with text generation");
             }
             
+            
            const cleanResponse = response
                 .replace(new RegExp(`<@!?${client.user.id}>`, 'g'), '') // Remove self-mentions
                 .replace(/@everyone/g, 'everyone') // Remove @everyone
@@ -1150,8 +1187,8 @@ client.on("messageCreate", async (msg) => {
             return;
         }
         
-        // Store ALL messages for learning
-        if (msg.content && msg.content.length > 3) {
+        // Store ALL USER messages for learning (not bot messages)
+        if (!msg.author.bot && msg.content && msg.content.length > 3) {
             addMessageToServer(msg.guild.id, msg.content);
         }
     }
