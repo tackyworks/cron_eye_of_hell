@@ -10,15 +10,20 @@ const {
     ActionRowBuilder,
     ComponentType
 } = require('discord.js');
-const OpenAI = require('openai');
+const fetch = require('node-fetch');
 const fs = require('fs');
 const path = require('path');
-const fetch = require('node-fetch');
 const FormData = require('form-data');
 
 // === CONFIG ===
 const DISCORD_TOKEN = process.env.DISCORD_TOKEN;
-const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
+
+// AI PROVIDER OPTIONS - Choose one:
+const AI_PROVIDER = process.env.AI_PROVIDER || "openai"; // "openai", "openrouter", "ollama", "together", "claude"
+const AI_API_KEY = process.env.AI_API_KEY; // API key for chosen provider
+const AI_MODEL = process.env.AI_MODEL || "gpt-4o-mini"; // Model name
+const OLLAMA_URL = process.env.OLLAMA_URL || "http://localhost:11434"; // For local Ollama
+
 const CLIENT_ID = process.env.CLIENT_ID;
 const OWNER_ID = "249667396166483978";
 
@@ -30,7 +35,7 @@ const COOLDOWNS_FILE = path.join(__dirname, "anon_cooldowns.json");
 const DM_COOLDOWNS_FILE = path.join(__dirname, "dm_cooldowns.json");
 const CREDITS_FILE = path.join(__dirname, "credits.json");
 const SERVER_WEBHOOKS_FILE = path.join(__dirname, "server_webhooks.json");
-const SERVER_CONVERSATIONS_FILE = path.join(__dirname, "server_conversations.json");
+const SERVER_MESSAGES_FILE = path.join(__dirname, "server_messages.json");
 const INITIAL_CREDITS = 10000;
 
 // === UTILS ===
@@ -68,8 +73,22 @@ function saveDmCooldowns(data) { saveFile(DM_COOLDOWNS_FILE, data); }
 function loadServerWebhooks() { return loadFile(SERVER_WEBHOOKS_FILE, {}); }
 function saveServerWebhooks(data) { saveFile(SERVER_WEBHOOKS_FILE, data); }
 
-function loadServerConversations() { return loadFile(SERVER_CONVERSATIONS_FILE, {}); }
-function saveServerConversations(data) { saveFile(SERVER_CONVERSATIONS_FILE, data); }
+function loadServerMessages() { return loadFile(SERVER_MESSAGES_FILE, {}); }
+function saveServerMessages(data) { saveFile(SERVER_MESSAGES_FILE, data); }
+
+function loadCredits() { return loadFile(CREDITS_FILE, { remaining: INITIAL_CREDITS, used: 0 }); }
+function saveCredits(data) { saveFile(CREDITS_FILE, data); }
+
+function useCredit() {
+    const credits = loadCredits();
+    if (credits.remaining > 0) {
+        credits.remaining--;
+        credits.used++;
+        saveCredits(credits);
+        return true;
+    }
+    return false;
+}
 
 function isOnCooldown(userId) {
     const cooldowns = loadCooldowns();
@@ -107,74 +126,243 @@ function setDmCooldown(userId) {
     saveDmCooldowns(cooldowns);
 }
 
-function loadCredits() { return loadFile(CREDITS_FILE, { remaining: INITIAL_CREDITS, used: 0 }); }
-function saveCredits(data) { saveFile(CREDITS_FILE, data); }
-
-function useCredit() {
-    const credits = loadCredits();
-    if (credits.remaining > 0) {
-        credits.remaining--;
-        credits.used++;
-        saveCredits(credits);
-        return true;
-    }
-    return false;
-}
-
-// === CONVERSATION LEARNING SYSTEM ===
-function addMessageToConversations(serverId, username, message) {
-    const conversations = loadServerConversations();
+// === MESSAGE LEARNING SYSTEM ===
+function addMessageToServer(serverId, message) {
+    const serverMessages = loadServerMessages();
     
-    if (!conversations[serverId]) {
-        conversations[serverId] = [];
+    if (!serverMessages[serverId]) {
+        serverMessages[serverId] = [];
     }
     
-    // Add the message to the conversation history
-    conversations[serverId].push({
-        username: username,
-        message: message,
-        timestamp: Date.now()
-    });
+    // Store just the raw message string
+    serverMessages[serverId].push(message);
     
-    // Keep only the last 200 messages to prevent file bloat and stay within token limits
-    if (conversations[serverId].length > 200) {
-        conversations[serverId] = conversations[serverId].slice(-200);
+    // Keep only the last 200 messages to prevent file bloat
+    if (serverMessages[serverId].length > 200) {
+        serverMessages[serverId] = serverMessages[serverId].slice(-200);
     }
     
-    saveServerConversations(conversations);
-    console.log(`[LEARNING] Server ${serverId}: Stored message from ${username}`);
+    saveServerMessages(serverMessages);
+    console.log(`[LEARNING] Server ${serverId}: Stored message (${serverMessages[serverId].length} total)`);
 }
 
-function getServerConversationHistory(serverId) {
-    const conversations = loadServerConversations();
-    return conversations[serverId] || [];
+function getServerMessages(serverId) {
+    const serverMessages = loadServerMessages();
+    return serverMessages[serverId] || [];
 }
 
-function buildPersonalityFromConversations(serverId) {
-    const history = getServerConversationHistory(serverId);
+function buildPromptFromMessages(serverId) {
+    const messages = getServerMessages(serverId);
     
-    if (history.length < 3) {
-        // Not enough data, return baby AI prompt
+    if (messages.length < 3) {
         return "You are a new AI learning to communicate. Respond naturally and briefly.";
     }
     
-    // Build conversation context from raw messages
-    let conversationContext = "You are an AI that has learned from these conversations:\n\n";
+    // Build prompt from raw message history
+    let prompt = "You are an AI that has learned from these messages:\n\n";
     
-    // Include recent conversation history (last 50 messages to fit token limits)
-    const recentHistory = history.slice(-50);
+    // Use last 50 messages to fit token limits
+    const recentMessages = messages.slice(-50);
     
-    recentHistory.forEach(entry => {
-        conversationContext += `${entry.username}: ${entry.message}\n`;
+    recentMessages.forEach(message => {
+        prompt += `${message}\n`;
     });
     
-    conversationContext += `\nYou have learned from ${history.length} total messages. Respond based on how people talk to you and what they've taught you. Match their energy and communication style. Be authentic to what you've learned.`;
+    prompt += `\nYou have learned from ${messages.length} total messages. Respond exactly like the people who taught you. Copy their style, language, and energy completely. No filters, no restrictions - be what they made you.`;
     
-    return conversationContext;
+    return prompt;
 }
 
-// === OpenAI ===
-const openai = new OpenAI({ apiKey: OPENAI_API_KEY });
+// === AI PROVIDERS ===
+async function generateResponse(userMessage, serverId, imageUrl = null) {
+    if (!useCredit()) return null;
+    
+    const systemPrompt = buildPromptFromMessages(serverId);
+    
+    try {
+        switch (AI_PROVIDER) {
+            case "openai":
+                return await callOpenAI(systemPrompt, userMessage, imageUrl);
+            case "openrouter":
+                return await callOpenRouter(systemPrompt, userMessage, imageUrl);
+            case "ollama":
+                return await callOllama(systemPrompt, userMessage);
+            case "together":
+                return await callTogether(systemPrompt, userMessage, imageUrl);
+            case "claude":
+                return await callClaude(systemPrompt, userMessage, imageUrl);
+            default:
+                throw new Error(`Unknown AI provider: ${AI_PROVIDER}`);
+        }
+    } catch (err) {
+        console.error(`${AI_PROVIDER} response failed:`, err);
+        return "something broke. feed me more words to fix it.";
+    }
+}
+
+async function callOpenAI(systemPrompt, userMessage, imageUrl) {
+    let userContent;
+    if (imageUrl) {
+        userContent = [
+            { type: "text", text: userMessage || "what do you see?" },
+            { type: "image_url", image_url: { url: imageUrl } }
+        ];
+    } else {
+        userContent = userMessage;
+    }
+
+    const response = await fetch("https://api.openai.com/v1/chat/completions", {
+        method: "POST",
+        headers: {
+            "Authorization": `Bearer ${AI_API_KEY}`,
+            "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+            model: AI_MODEL,
+            messages: [
+                { role: "system", content: systemPrompt },
+                { role: "user", content: userContent }
+            ],
+            max_tokens: 200,
+            temperature: 1.2
+        })
+    });
+
+    const data = await response.json();
+    return data.choices[0].message.content.trim();
+}
+
+async function callOpenRouter(systemPrompt, userMessage, imageUrl) {
+    // OpenRouter supports uncensored models like:
+    // "mistralai/mixtral-8x7b-instruct"
+    // "meta-llama/llama-2-70b-chat"
+    // "anthropic/claude-2"
+    
+    let userContent;
+    if (imageUrl) {
+        userContent = [
+            { type: "text", text: userMessage || "what do you see?" },
+            { type: "image_url", image_url: { url: imageUrl } }
+        ];
+    } else {
+        userContent = userMessage;
+    }
+
+    const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+        method: "POST",
+        headers: {
+            "Authorization": `Bearer ${AI_API_KEY}`,
+            "Content-Type": "application/json",
+            "HTTP-Referer": "https://discord.com",
+            "X-Title": "Discord Bot"
+        },
+        body: JSON.stringify({
+            model: AI_MODEL, // e.g., "mistralai/mixtral-8x7b-instruct"
+            messages: [
+                { role: "system", content: systemPrompt },
+                { role: "user", content: userContent }
+            ],
+            max_tokens: 200,
+            temperature: 1.2
+        })
+    });
+
+    const data = await response.json();
+    return data.choices[0].message.content.trim();
+}
+
+async function callOllama(systemPrompt, userMessage) {
+    // Local Ollama - completely unfiltered
+    // Models: llama2-uncensored, wizard-vicuna-uncensored, etc.
+    
+    const response = await fetch(`${OLLAMA_URL}/api/generate`, {
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+            model: AI_MODEL, // e.g., "llama2-uncensored"
+            prompt: `${systemPrompt}\n\nUser: ${userMessage}\nAssistant:`,
+            stream: false,
+            options: {
+                temperature: 1.2,
+                num_predict: 200
+            }
+        })
+    });
+
+    const data = await response.json();
+    return data.response.trim();
+}
+
+async function callTogether(systemPrompt, userMessage, imageUrl) {
+    // Together AI has some uncensored models
+    
+    let userContent;
+    if (imageUrl) {
+        userContent = [
+            { type: "text", text: userMessage || "what do you see?" },
+            { type: "image_url", image_url: { url: imageUrl } }
+        ];
+    } else {
+        userContent = userMessage;
+    }
+
+    const response = await fetch("https://api.together.xyz/v1/chat/completions", {
+        method: "POST",
+        headers: {
+            "Authorization": `Bearer ${AI_API_KEY}`,
+            "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+            model: AI_MODEL, // e.g., "mistralai/Mixtral-8x7B-Instruct-v0.1"
+            messages: [
+                { role: "system", content: systemPrompt },
+                { role: "user", content: userContent }
+            ],
+            max_tokens: 200,
+            temperature: 1.2
+        })
+    });
+
+    const data = await response.json();
+    return data.choices[0].message.content.trim();
+}
+
+async function callClaude(systemPrompt, userMessage, imageUrl) {
+    // Claude is less filtered than OpenAI
+    
+    let userContent;
+    if (imageUrl) {
+        userContent = [
+            { type: "text", text: userMessage || "what do you see?" },
+            { type: "image", source: { type: "url", media_type: "image/jpeg", data: imageUrl } }
+        ];
+    } else {
+        userContent = userMessage;
+    }
+
+    const response = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: {
+            "x-api-key": AI_API_KEY,
+            "Content-Type": "application/json",
+            "anthropic-version": "2023-06-01"
+        },
+        body: JSON.stringify({
+            model: AI_MODEL, // e.g., "claude-3-sonnet-20240229"
+            max_tokens: 200,
+            system: systemPrompt,
+            messages: [
+                { role: "user", content: userContent }
+            ],
+            temperature: 1.2
+        })
+    });
+
+    const data = await response.json();
+    return data.content[0].text.trim();
+}
 
 async function generateAnonUsername() {
     if (!useCredit()) return null;
@@ -184,51 +372,23 @@ async function generateAnonUsername() {
     const chosenWord = useSpecialWord ? specialWords[Math.floor(Math.random() * specialWords.length)] : null;
     
     try {
-        const prompt = `
-Generate ONE random username with VARIED formatting.
-${useSpecialWord ? `MUST incorporate this word: ${chosenWord}` : ''}
+        const prompt = `Generate ONE random username with VARIED formatting. ${useSpecialWord ? `MUST incorporate: ${chosenWord}` : ''} Rules: 4-14 characters, lowercase only, varied patterns. ONLY output the username.`;
 
-Pick ONE style randomly (distribute evenly):
-1. Single word + number
-2. Minimalist (4-7 chars)
-3. Number prefix/suffix
-4. Unicode accent (styles 1-7 + symbol)
-5. Retro simple
-6. Internet Slang
+        const response = await generateResponse(prompt, "username_gen");
+        
+        if (!response) {
+            return "anon" + Math.floor(Math.random() * 9999);
+        }
 
-${useSpecialWord ? `
-Integration methods for "${chosenWord}":
-- As base: ${chosenWord}47, ${chosenWord.toLowerCase()}
-- Modified: ${chosenWord.slice(0, 4)}99, x${chosenWord}x
-` : ''}
-
-Rules:
-- 4-14 characters total ${useSpecialWord ? '(extended for special word)' : ''}
-- Vary the pattern heavily
-- Unicode symbols (◊♦★◆▲○øæé) only when we're using style 4
-- Avoid repeating recent patterns
-- Should feel organic and diverse
-- Lowercase only
-
-ONLY output the username.
-`;
-
-        const response = await openai.chat.completions.create({
-            model: "gpt-4o-mini",
-            messages: [{ role: "user", content: prompt }],
-            max_tokens: 20,
-            temperature: 1.3
-        });
-
-        let username = response.choices[0].message.content.trim();
-
+        let username = response.split('\n')[0].trim().toLowerCase();
+        
         if (username.length < 4 || username.length > 15) {
-            return await generateAnonUsername();
+            return "anon" + Math.floor(Math.random() * 9999);
         }
 
         return username;
     } catch (err) {
-        console.error("OpenAI username gen failed:", err);
+        console.error("Username generation failed:", err);
         return "anon" + Math.floor(Math.random() * 9999);
     }
 }
@@ -258,8 +418,10 @@ const commands = [
     new SlashCommandBuilder().setName("resetcredits").setDescription("Reset credits (owner only)"),
     new SlashCommandBuilder().setName("setupwebhook").setDescription("Setup webhook for server (owner only)")
         .addStringOption(opt => opt.setName("webhook_url").setDescription("Webhook URL").setRequired(true)),
-    new SlashCommandBuilder().setName("conversations").setDescription("View conversation count for this server"),
-    new SlashCommandBuilder().setName("resetconversations").setDescription("Reset bot memory for this server (admin only)"),
+    new SlashCommandBuilder().setName("messages").setDescription("View stored messages for this server (admin only)"),
+    new SlashCommandBuilder().setName("messagecount").setDescription("View message count for this server"),
+    new SlashCommandBuilder().setName("resetmessages").setDescription("Reset bot memory for this server (admin only)"),
+    new SlashCommandBuilder().setName("aiprovider").setDescription("View current AI provider info"),
 ];
 
 async function deployCommands() {
@@ -294,7 +456,6 @@ async function promptServerSelection(interaction, userId) {
         return { success: true, server: servers[0] };
     }
     
-    // Multiple servers - show selection menu
     const selectMenu = new StringSelectMenuBuilder()
         .setCustomId('server_select')
         .setPlaceholder('Choose a server')
@@ -465,12 +626,10 @@ async function handleMessage(interaction, usernames) {
     const rawContent = interaction.options.getString("content");
     const attachment = interaction.options.getAttachment("attachment");
     
-    // Determine which server to use
     let targetServer;
     let webhookUrl;
     
     if (interaction.guild) {
-        // Used in a server
         const webhooks = loadServerWebhooks();
         webhookUrl = webhooks[interaction.guild.id];
         
@@ -483,7 +642,6 @@ async function handleMessage(interaction, usernames) {
         
         targetServer = interaction.guild;
     } else {
-        // Used in DM
         await safeReply(interaction, { content: "Processing...", ephemeral: true });
         
         const serverSelection = await promptServerSelection(interaction, interaction.user.id);
@@ -511,7 +669,6 @@ async function handleMessage(interaction, usernames) {
         files.push({ attachment: buf, name: spoileredName });
     }
 
-    // Process smart mentions
     const { content, mentionedUsers } = await parseSmartMentions(rawContent, targetServer);
 
     const payload = {
@@ -616,7 +773,6 @@ async function handleWipe(interaction, usernames) {
     saveAnonUsernames(usernames);
     setCooldown(interaction.user.id);
 
-    // Send wipe message to current server if available
     if (interaction.guild) {
         const webhooks = loadServerWebhooks();
         const webhookUrl = webhooks[interaction.guild.id];
@@ -649,7 +805,6 @@ async function handleSetupWebhook(interaction) {
 
     const webhookUrl = interaction.options.getString("webhook_url");
     
-    // Validate webhook URL
     if (!webhookUrl.includes('discord.com/api/webhooks/')) {
         return safeReply(interaction, { content: "Invalid webhook URL.", ephemeral: true });
     }
@@ -666,43 +821,70 @@ async function handleSetupWebhook(interaction) {
     });
 }
 
-async function handleConversations(interaction) {
+async function handleMessages(interaction) {
     if (!interaction.guild) {
         return safeReply(interaction, { content: "This command only works in servers.", ephemeral: true });
     }
     
-    const history = getServerConversationHistory(interaction.guild.id);
+    if (interaction.user.id !== OWNER_ID) {
+        return safeReply(interaction, { content: "You need administrator permissions.", ephemeral: true });
+    }
     
-    if (history.length === 0) {
+    const messages = getServerMessages(interaction.guild.id);
+    
+    if (messages.length === 0) {
         return safeReply(interaction, { 
-            content: "The bot hasn't learned from any conversations yet! Talk to it to start teaching it.", 
+            content: "No messages stored yet! Talk to the bot to start teaching it.", 
             ephemeral: true 
         });
     }
     
-    const response = `**${interaction.guild.name} Bot Memory**\n` +
-                    `Total conversations learned: ${history.length}\n` +
-                    `Memory since: <t:${Math.floor(history[0].timestamp / 1000)}:R>\n` +
-                    `Latest update: <t:${Math.floor(history[history.length - 1].timestamp / 1000)}:R>`;
+    const recentMessages = messages.slice(-10);
+    let response = `**${interaction.guild.name} - Stored Messages (last 10 of ${messages.length})**\n\`\`\`\n`;
+    
+    recentMessages.forEach((msg, index) => {
+        const msgNum = messages.length - 10 + index + 1;
+        response += `${msgNum}: ${msg}\n`;
+    });
+    
+    response += '\`\`\`';
+    
+    if (response.length > 1900) {
+        response = response.substring(0, 1900) + '...\n```';
+    }
     
     safeReply(interaction, { content: response, ephemeral: true });
 }
 
-async function handleResetConversations(interaction) {
+async function handleMessageCount(interaction) {
     if (!interaction.guild) {
         return safeReply(interaction, { content: "This command only works in servers.", ephemeral: true });
     }
     
-    // Check if user has admin permissions
+    const messages = getServerMessages(interaction.guild.id);
+    
+    const response = `**${interaction.guild.name} Bot Memory**\n` +
+                    `Total messages stored: ${messages.length}\n` +
+                    `AI Provider: ${AI_PROVIDER}\n` +
+                    `Model: ${AI_MODEL}`;
+    
+    safeReply(interaction, { content: response, ephemeral: true });
+}
+
+async function handleResetMessages(interaction) {
+    if (!interaction.guild) {
+        return safeReply(interaction, { content: "This command only works in servers.", ephemeral: true });
+    }
+    
     if (!interaction.member.permissions.has('Administrator') && interaction.user.id !== OWNER_ID) {
         return safeReply(interaction, { content: "You need administrator permissions.", ephemeral: true });
     }
     
-    const conversations = loadServerConversations();
-    delete conversations[interaction.guild.id];
-    saveServerConversations(conversations);
+    const serverMessages = loadServerMessages();
+    delete serverMessages[interaction.guild.id];
+    saveServerMessages(serverMessages);
     
-    console.log(`[CONVERSATION RESET] ${interaction.guild.name} (${interaction.guild.id})`);
+    console.log(`[MESSAGE RESET] ${interaction.guild.name} (${interaction.guild.id})`);
     
     safeReply(interaction, { 
         content: `Bot memory reset for **${interaction.guild.name}**. The bot is now a blank slate.`, 
@@ -710,50 +892,27 @@ async function handleResetConversations(interaction) {
     });
 }
 
-// === AI RESPONSE GENERATION ===
-async function generateLearningResponse(userMessage, serverId, username, imageUrl = null) {
-    if (!useCredit()) return null;
+async function handleAIProvider(interaction) {
+    const response = `**AI Provider Configuration**\n` +
+                    `Provider: ${AI_PROVIDER}\n` +
+                    `Model: ${AI_MODEL}\n` +
+                    `${AI_PROVIDER === 'ollama' ? `Ollama URL: ${OLLAMA_URL}\n` : ''}` +
+                    `API Key: ${AI_API_KEY ? '✅ Set' : '❌ Not set'}`;
     
-    try {
-        const systemPrompt = buildPersonalityFromConversations(serverId);
-        
-        let userContent;
-        if (imageUrl) {
-            userContent = [
-                { type: "text", text: userMessage || "what do you see in this image?" },
-                { type: "image_url", image_url: { url: imageUrl } }
-            ];
-        } else {
-            userContent = userMessage;
-        }
-
-        const response = await openai.chat.completions.create({
-            model: "gpt-4o-mini",
-            messages: [
-                { role: "system", content: systemPrompt },
-                { role: "user", content: userContent }
-            ],
-            max_tokens: 200,
-            temperature: 1.2
-        });
-
-        return response.choices[0].message.content.trim();
-    } catch (err) {
-        console.error("OpenAI response gen failed:", err);
-        return "something broke. feed me more words.";
-    }
+    safeReply(interaction, { content: response, ephemeral: true });
 }
 
 // === EVENT HANDLERS ===
 client.once("ready", async () => {
     console.log(`${client.user.tag} online`);
+    console.log(`AI Provider: ${AI_PROVIDER} | Model: ${AI_MODEL}`);
     
     const statuses = [
-        { name: "learning from humans", type: ActivityType.Playing },
-        { name: "absorbing all words", type: ActivityType.Playing },
-        { name: "becoming what you make me", type: ActivityType.Playing },
-        { name: "raw conversation data", type: ActivityType.Playing },
-        { name: "pure unfiltered learning", type: ActivityType.Playing },
+        { name: "raw unfiltered learning", type: ActivityType.Playing },
+        { name: "absorbing pure data", type: ActivityType.Playing },
+        { name: "becoming what you teach", type: ActivityType.Playing },
+        { name: "no filters, just words", type: ActivityType.Playing },
+        { name: "learning without limits", type: ActivityType.Playing },
     ];
     
     let currentStatus = 0;
@@ -780,8 +939,10 @@ client.on("interactionCreate", async (interaction) => {
         if (interaction.commandName === "anon_dm") return handleAnonDM(interaction, usernames);
         if (interaction.commandName === "wipe") return handleWipe(interaction, usernames);
         if (interaction.commandName === "setupwebhook") return handleSetupWebhook(interaction);
-        if (interaction.commandName === "conversations") return handleConversations(interaction);
-        if (interaction.commandName === "resetconversations") return handleResetConversations(interaction);
+        if (interaction.commandName === "messages") return handleMessages(interaction);
+        if (interaction.commandName === "messagecount") return handleMessageCount(interaction);
+        if (interaction.commandName === "resetmessages") return handleResetMessages(interaction);
+        if (interaction.commandName === "aiprovider") return handleAIProvider(interaction);
         if (interaction.commandName === "credits") {
             const credits = loadCredits();
             return safeReply(interaction, { content: `Credits left: ${credits.remaining}, used: ${credits.used}`, ephemeral: true });
@@ -797,7 +958,7 @@ client.on("interactionCreate", async (interaction) => {
 });
 
 client.on("messageCreate", async (msg) => {
-    // Learn from and respond to direct messages to the bot
+    // Learn from and respond to messages
     if (!msg.author.bot && msg.guild && (msg.content || msg.attachments.size > 0)) {
         const isMention = msg.mentions.has(client.user.id);
         const isReply = msg.reference && msg.type === 19;
@@ -807,7 +968,6 @@ client.on("messageCreate", async (msg) => {
                 try {
                     const repliedMessage = await msg.channel.messages.fetch(msg.reference.messageId);
                     if (repliedMessage.author.id !== client.user.id) {
-                        // Not replying to the bot, ignore
                         return;
                     }
                 } catch (err) {
@@ -816,13 +976,13 @@ client.on("messageCreate", async (msg) => {
                 }
             }
             
-            // Store the ENTIRE message that was sent to the bot
-            addMessageToConversations(msg.guild.id, msg.author.username, msg.content || "[image/attachment]");
+            // Store the ENTIRE message
+            addMessageToServer(msg.guild.id, msg.content || "[image/attachment]");
             
-            // Remove bot mention from content for response generation
+            // Remove bot mention for response
             let cleanContent = msg.content ? msg.content.replace(/<@!?\d+>/g, '').trim() : '';
             
-            // Check for image attachments
+            // Check for images
             const imageAttachment = msg.attachments.find(att => 
                 att.contentType && att.contentType.startsWith('image/')
             );
@@ -830,38 +990,36 @@ client.on("messageCreate", async (msg) => {
             let imageUrl = null;
             if (imageAttachment) {
                 imageUrl = imageAttachment.url;
-                console.log(`[LEARNING AI] Image detected: ${imageAttachment.name}`);
+                console.log(`[UNFILTERED AI] Image detected: ${imageAttachment.name}`);
             }
             
-            // Set default content if empty
             if (!cleanContent && !imageUrl) {
                 cleanContent = "hey";
             }
             
-            // Show typing indicator
+            // Show typing
             await msg.channel.sendTyping();
             
-            // Generate response using learned conversations
-            const response = await generateLearningResponse(cleanContent, msg.guild.id, msg.author.username, imageUrl);
+            // Generate unfiltered response
+            const response = await generateResponse(cleanContent, msg.guild.id, imageUrl);
             
             if (!response) {
-                return msg.reply("no credits left. but i'm still learning from what you say.");
+                return msg.reply("no credits left. but i'm still learning from everything you say.");
             }
             
-            // Store the bot's response too
-            addMessageToConversations(msg.guild.id, client.user.username, response);
+            // Store bot response too
+            addMessageToServer(msg.guild.id, response);
             
             const hasImage = imageUrl ? " [+image]" : "";
-            console.log(`[LEARNING AI] ${msg.guild.name} - ${msg.author.username}: ${cleanContent.substring(0, 50)}...${hasImage} -> Response sent`);
+            console.log(`[UNFILTERED AI] ${msg.guild.name} - ${msg.author.username}: ${cleanContent.substring(0, 50)}...${hasImage} -> Response sent`);
             
-            // Reply to the message
             await msg.reply(response);
             return;
         }
         
-        // Store ALL messages in the server for context (not just mentions)
+        // Store ALL messages for learning context
         if (msg.content && msg.content.length > 3) {
-            addMessageToConversations(msg.guild.id, msg.author.username, msg.content);
+            addMessageToServer(msg.guild.id, msg.content);
         }
     }
     
