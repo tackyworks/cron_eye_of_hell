@@ -1136,9 +1136,6 @@ client.on("messageCreate", async (msg) => {
                 return msg.reply("something went wrong with text generation");
             }
             
-            // Store bot response too
-            addMessageToServer(msg.guild.id, response);
-            
            const cleanResponse = response
                 .replace(new RegExp(`<@!?${client.user.id}>`, 'g'), '') // Remove self-mentions
                 .replace(/@everyone/g, 'everyone') // Remove @everyone
