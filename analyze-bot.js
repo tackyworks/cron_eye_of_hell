@@ -136,10 +136,16 @@ function addMessageToServer(serverId, message) {
         serverMessages[serverId] = [];
     }
     
-    // Store just the raw message string
+    // CHECK FOR DUPLICATES - don't store if already exists
+    if (serverMessages[serverId].includes(message)) {
+        console.log(`[LEARNING] Server ${serverId}: Duplicate message ignored`);
+        return; // Don't store duplicates
+    }
+    
+    // Store the raw message string
     serverMessages[serverId].push(message);
     
-    // Keep only the last 500 messages for Markov chains (more data = better chains)
+    // Keep only the last 2000 messages for Markov chains
     if (serverMessages[serverId].length > 2000) {
         serverMessages[serverId] = serverMessages[serverId].slice(-2000);
     }
@@ -162,7 +168,7 @@ class MarkovChain {
     }
     
     buildChain(messages) {
-        // NO CLEANING - USE RAW MESSAGES
+        // USE ALL MESSAGES - NO SLICING OR RECENT FILTERING
         const text = messages
             .filter(msg => msg && msg.length > 0) // Only filter completely empty
             .join(' ')
@@ -172,7 +178,7 @@ class MarkovChain {
         
         const words = text.split(' ').filter(word => word.length > 0);
         
-        // Build the chain
+        // Build the chain from ALL words
         for (let i = 0; i < words.length - this.order; i++) {
             const key = words.slice(i, i + this.order).join(' ');
             const nextWord = words[i + this.order];
@@ -230,13 +236,13 @@ class MarkovChain {
 }
 
 function generateMarkovResponse(serverId, userMessage = '') {
-    const messages = getServerMessages(serverId);
+    const messages = getServerMessages(serverId); // Gets ALL messages, not recent
     
-    // NO 5 MESSAGE CHECK - START AT 1
     if (messages.length < 1) {
         return "no messages stored yet";
     }
     
+    // Use ALL messages to build the chain
     const markov = new MarkovChain(messages, 2);
     
     // Try to use a word from the user's message as a starting point
