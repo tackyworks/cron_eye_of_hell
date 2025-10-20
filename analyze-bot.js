@@ -186,7 +186,6 @@ class MarkovChain {
         const text = messages
             .filter(msg => msg && msg.length > 0) // Only filter completely empty
             .join(' ') // Simple space separation
-            .toLowerCase();
             
         if (text.length < 10) return; // Need more data
         
