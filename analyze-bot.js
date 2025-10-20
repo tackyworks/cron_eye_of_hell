@@ -1021,7 +1021,7 @@ async function handleOwnerCommands(msg, cmd, args) {
             });
         } else {
             // Just enabled responses
-            return msg.reply("Markov responses re-enabled!");
+            return msg.reply("im .. back");
         }
     }
     
