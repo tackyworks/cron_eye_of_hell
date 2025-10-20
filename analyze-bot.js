@@ -156,22 +156,19 @@ function getServerMessages(serverId) {
 // === MARKOV CHAIN GENERATOR ===
 class MarkovChain {
     constructor(messages, order = 2) {
-        this.order = order; // How many words to look back
+        this.order = order;
         this.chain = {};
         this.buildChain(messages);
     }
     
     buildChain(messages) {
-        // Clean and prepare messages
+        // NO CLEANING - USE RAW MESSAGES
         const text = messages
-            .filter(msg => msg && msg.length > 3) // Filter out short/empty messages
-            .join(' . ') // Join with periods to separate message boundaries
-            .toLowerCase()
-            .replace(/[^\w\s'-]/g, ' ') // Remove most punctuation but keep apostrophes and hyphens
-            .replace(/\s+/g, ' ') // Normalize spaces
-            .trim();
+            .filter(msg => msg && msg.length > 0) // Only filter completely empty
+            .join(' ')
+            .toLowerCase();
             
-        if (text.length < 10) return; // Not enough data
+        if (text.length < 5) return; // Minimal check
         
         const words = text.split(' ').filter(word => word.length > 0);
         
@@ -187,15 +184,14 @@ class MarkovChain {
         }
     }
     
-    generateText(maxLength = 50, startWord = null) {
+    generateText(maxLength = 30, startWord = null) {
         if (Object.keys(this.chain).length === 0) {
-            return "need more messages to learn from";
+            return "not enough data yet";
         }
         
         // Find starting point
         let currentKey;
         if (startWord) {
-            // Try to find a key that starts with the given word
             const matchingKeys = Object.keys(this.chain).filter(key => 
                 key.toLowerCase().startsWith(startWord.toLowerCase())
             );
@@ -206,7 +202,7 @@ class MarkovChain {
             currentKey = this.getRandomKey();
         }
         
-        if (!currentKey) return "not enough data to generate text";
+        if (!currentKey) return "not enough data yet";
         
         const words = currentKey.split(' ');
         
@@ -215,22 +211,16 @@ class MarkovChain {
             const possibleNext = this.chain[currentKey];
             
             if (!possibleNext || possibleNext.length === 0) {
-                break; // No more words to add
+                break;
             }
             
-            // Pick a random next word
             const nextWord = possibleNext[Math.floor(Math.random() * possibleNext.length)];
             words.push(nextWord);
             
-            // Update current key for next iteration
             currentKey = words.slice(-this.order).join(' ');
         }
         
-        // Return generated text with some basic cleanup
-        return words.join(' ')
-            .replace(/\s+/g, ' ')
-            .trim()
-            .substring(0, 200); // Discord message limit consideration
+        return words.join(' ').substring(0, 200);
     }
     
     getRandomKey() {
@@ -242,8 +232,9 @@ class MarkovChain {
 function generateMarkovResponse(serverId, userMessage = '') {
     const messages = getServerMessages(serverId);
     
-    if (messages.length < 5) {
-        return "need more messages to learn from, keep talking";
+    // NO 5 MESSAGE CHECK - START AT 1
+    if (messages.length < 1) {
+        return "no messages stored yet";
     }
     
     const markov = new MarkovChain(messages, 2);
@@ -258,7 +249,7 @@ function generateMarkovResponse(serverId, userMessage = '') {
     }
     
     const response = markov.generateText(30, startWord);
-    return response || "brain.exe has stopped working";
+    return response || "generation failed";
 }
 
 // === AI PROVIDERS (DISABLED BY DEFAULT) ===
