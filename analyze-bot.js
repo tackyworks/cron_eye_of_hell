@@ -1124,7 +1124,7 @@ client.on("messageCreate", async (msg) => {
             await msg.channel.sendTyping();
             
             // Generate response (Markov by default)
-            const response = await generateResponse(cleanContent, msg.guild.id, imageUrl);
+           const response = await generateResponse(cleanContent, msg.guild.id, imageUrl);
             
             if (!response) {
                 return msg.reply("something went wrong with text generation");
@@ -1133,11 +1133,12 @@ client.on("messageCreate", async (msg) => {
             // Store bot response too
             addMessageToServer(msg.guild.id, response);
             
+            const cleanResponse = response.replace(new RegExp(`<@!?${client.user.id}>`, 'g'), '').trim();
             const generationMode = AI_PROVIDER === 'disabled' ? 'MARKOV' : AI_PROVIDER.toUpperCase();
             const hasImage = imageUrl ? " [+image]" : "";
             console.log(`[${generationMode}] ${msg.guild.name} - ${msg.author.username}: ${cleanContent.substring(0, 50)}...${hasImage} -> Response sent`);
             
-            await msg.reply(response);
+            await msg.reply(cleanResponse || "empty response");
             return;
         }
         
